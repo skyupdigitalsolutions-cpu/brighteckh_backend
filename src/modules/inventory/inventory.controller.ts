@@ -1,0 +1,72 @@
+import { Body, Controller, Get, Headers, Post, Query, BadRequestException } from '@nestjs/common';
+import { ApiCreatedResponse, ApiForbiddenResponse, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { InventoryService } from './inventory.service';
+import { ReceiptDto, ReserveDto, IssueDto, ConsumeDto, ReturnDto, SupplierReturnDto } from './dto/inventory.dto';
+import {
+  InventoryAvailabilityResponse, InventoryPostingResponse, InventoryReservationResponse,
+} from './dto/inventory.responses';
+import { FdnInventoryJournalRow } from '../../common/swagger/rows.generated';
+import { ApiAuth, ApiIdempotencyKey, ApiStdErrors, ErrorResponse } from '../../common/swagger/api-docs';
+import { CurrentActor } from '../../common/auth/current-actor.decorator';
+import { AuthUser } from '../../common/auth/auth.types';
+
+@ApiTags('Inventory ledger')
+@ApiAuth()
+@ApiStdErrors()
+@ApiForbiddenResponse({ description: 'company_id (body or query) is not the company of the authenticated user', type: ErrorResponse })
+@Controller('inventory')
+export class InventoryController {
+  constructor(private readonly svc: InventoryService) {}
+
+  @Get('availability')
+  @ApiOperation({ summary: 'Allocatable qty + per-location balances for one item' })
+  @ApiQuery({ name: 'company_id', required: true, schema: { type: 'string', format: 'uuid' } })
+  @ApiQuery({ name: 'item_id', required: true, schema: { type: 'string', format: 'uuid' } })
+  @ApiOkResponse({ type: InventoryAvailabilityResponse })
+  availability(@Query('company_id') c: string, @Query('item_id') i: string) {
+    if (!c || !i) throw new BadRequestException('company_id and item_id required');
+    return this.svc.availability(c, i);
+  }
+
+  @Post('receipts')
+  @ApiIdempotencyKey() @ApiCreatedResponse({ type: InventoryPostingResponse })
+  receipt(@Body() d: ReceiptDto, @Headers('idempotency-key') k: string, @CurrentActor() actor: AuthUser) {
+    return this.svc.receipt(d, k, actor.id);
+  }
+  @ApiCreatedResponse({ type: InventoryReservationResponse })
+  @Post('reservations')
+  @ApiIdempotencyKey()
+  reserve(@Body() d: ReserveDto, @Headers('idempotency-key') k: string, @CurrentActor() actor: AuthUser) {
+    return this.svc.reserve(d, k, actor.id);
+  }
+  @Post('issues')
+  @ApiIdempotencyKey() @ApiCreatedResponse({ type: InventoryPostingResponse })
+  issue(@Body() d: IssueDto, @Headers('idempotency-key') k: string, @CurrentActor() actor: AuthUser) {
+    return this.svc.issue(d, k, actor.id);
+  }
+  @Post('consumptions')
+  @ApiIdempotencyKey() @ApiCreatedResponse({ type: InventoryPostingResponse })
+  consume(@Body() d: ConsumeDto, @Headers('idempotency-key') k: string, @CurrentActor() actor: AuthUser) {
+    return this.svc.consume(d, k, actor.id);
+  }
+  @Post('returns')
+  @ApiIdempotencyKey() @ApiCreatedResponse({ type: InventoryPostingResponse })
+  ret(@Body() d: ReturnDto, @Headers('idempotency-key') k: string, @CurrentActor() actor: AuthUser) {
+    return this.svc.returnMaterial(d, k, actor.id);
+  }
+  @Post('supplier-returns')
+  @ApiIdempotencyKey() @ApiCreatedResponse({ type: InventoryPostingResponse })
+  supReturn(@Body() d: SupplierReturnDto, @Headers('idempotency-key') k: string, @CurrentActor() actor: AuthUser) {
+    return this.svc.supplierReturn(d, k, actor.id);
+  }
+
+  @Get('journal')
+  @ApiOperation({ summary: 'Ledger journal: all postings for a reference, or the latest 100 for the company' })
+  @ApiQuery({ name: 'company_id', required: true, schema: { type: 'string', format: 'uuid' } })
+  @ApiQuery({ name: 'reference_id', required: false, schema: { type: 'string', format: 'uuid' }, description: 'Omit for latest 100 (newest first); with it, ordered oldest first' })
+  @ApiOkResponse({ type: [FdnInventoryJournalRow] })
+  journal(@Query('company_id') c: string, @Query('reference_id') r?: string) {
+    if (!c) throw new BadRequestException('company_id required');
+    return this.svc.journal(c, r);
+  }
+}

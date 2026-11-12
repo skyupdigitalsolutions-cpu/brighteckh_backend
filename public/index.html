@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Brightech JMS — Dashboard</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --surface2:#eef1f5; --border:#d8dee6;
+    --text:#1b2330; --muted:#5b6676; --accent:#2f6df6; --accent2:#0ea5a5;
+    --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --pending:#9aa5b4;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+    --bg:#0e1420; --surface:#151d2b; --surface2:#1c2636; --border:#2a3650;
+    --text:#e6ecf5; --muted:#92a0b5; --accent:#5b8cff; --accent2:#2dd4bf;
+    --pending:#4a586e; color-scheme:dark;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0e1420; --surface:#151d2b; --surface2:#1c2636; --border:#2a3650;
+    --text:#e6ecf5; --muted:#92a0b5; --accent:#5b8cff; --accent2:#2dd4bf;
+    --pending:#4a586e; color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    padding-top:env(safe-area-inset-top,0);padding-bottom:env(safe-area-inset-bottom,0)}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 18px;
+    background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10}
+  .brand{font-weight:700;font-size:16px;letter-spacing:.2px}
+  .brand small{color:var(--muted);font-weight:500}
+  .spacer{flex:1}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--pending);display:inline-block;margin-right:6px;vertical-align:middle}
+  .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)}
+  select,button,input,textarea{font:inherit;color:var(--text);background:var(--surface2);
+    border:1px solid var(--border);border-radius:8px;padding:7px 10px}
+  button{cursor:pointer;background:var(--accent);color:#fff;border:none;font-weight:600}
+  button.ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+  button:active{transform:translateY(1px)}
+  a.link{color:var(--accent);text-decoration:none;font-weight:600}
+  nav{display:flex;gap:4px;padding:10px 18px 0;flex-wrap:wrap}
+  nav .tab{padding:8px 14px;border-radius:8px 8px 0 0;background:transparent;color:var(--muted);
+    border:1px solid transparent;cursor:pointer;font-weight:600}
+  nav .tab.active{background:var(--surface);color:var(--text);border-color:var(--border);border-bottom-color:var(--surface)}
+  main{padding:18px;max-width:1200px;margin:0 auto}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+  h2{font-size:15px;margin:0 0 12px}
+  /* workflow */
+  .flow{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px}
+  .node{min-width:150px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);
+    border-radius:10px;padding:12px;position:relative}
+  .node .lbl{font-weight:600;font-size:13px}
+  .node .cnt{font-size:24px;font-weight:700;margin-top:6px}
+  .node .badge{position:absolute;top:10px;right:10px;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700}
+  .badge.built{background:color-mix(in srgb,var(--ok) 20%,transparent);color:var(--ok)}
+  .badge.pending{background:color-mix(in srgb,var(--pending) 25%,transparent);color:var(--muted)}
+  .node.pending{opacity:.6}
+  .arrow{align-self:center;color:var(--muted);flex:0 0 auto}
+  /* tables */
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid var(--border);padding:6px 8px;text-align:left;white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+  th{background:var(--surface2);position:sticky;top:0}
+  .tablewrap{overflow:auto;max-height:60vh;border:1px solid var(--border);border-radius:8px}
+  /* demo + log */
+  .log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:8px;padding:12px;max-height:46vh;overflow:auto;white-space:pre-wrap}
+  .l-ok{color:var(--ok)} .l-bad{color:var(--bad)} .l-info{color:var(--muted)} .l-step{color:var(--accent);font-weight:700}
+  .bal{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+  .pill{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;min-width:120px}
+  .pill .k{font-size:11px;color:var(--muted)} .pill .v{font-size:20px;font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
+  .row>div{display:flex;flex-direction:column;gap:4px}
+  label{font-size:11px;color:var(--muted)}
+  textarea{width:100%;min-height:120px;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .muted{color:var(--muted)} .hidden{display:none}
+  .resp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:8px;padding:12px;white-space:pre-wrap;max-height:40vh;overflow:auto}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Brightech JMS <small>· dev dashboard</small></div>
+  <span class="muted"><span id="healthDot" class="dot"></span><span id="healthTxt">checking…</span></span>
+  <div class="spacer"></div>
+  <select id="company" title="Company"></select>
+  <form id="loginForm" class="row" style="gap:6px;margin:0" autocomplete="on">
+    <input id="loginId" placeholder="login id (e.g. DEMO-PUR)" autocomplete="username" style="width:150px"/>
+    <input id="loginPw" type="password" placeholder="password" autocomplete="current-password" style="width:120px"/>
+    <button type="submit">Log in</button>
+  </form>
+  <span id="whoami" class="hidden"><span id="whoTxt" class="muted"></span> <button class="ghost" id="logoutBtn">Log out</button></span>
+  <a class="link" href="/api/docs" target="_blank">Swagger ↗</a>
+  <button class="ghost" id="themeBtn" title="Toggle theme">◐</button>
+</header>
+
+<nav id="tabs">
+  <div class="tab active" data-tab="workflow">Workflow</div>
+  <div class="tab" data-tab="demo">Demo</div>
+  <div class="tab" data-tab="tables">Tables</div>
+  <div class="tab" data-tab="tester">API Tester</div>
+  <div class="tab" data-tab="journal">Journal</div>
+</nav>
+
+<main>
+  <!-- WORKFLOW -->
+  <section id="workflow">
+    <div class="card">
+      <h2>Pipeline <span class="muted">— live counts; greyed = module not built yet</span></h2>
+      <div id="flow" class="flow"><span class="muted">loading…</span></div>
+    </div>
+    <div class="card">
+      <h2>Data model — the chain</h2>
+      <p class="muted" style="margin:0">Inward (JIN) → Equipment Unit → <b>Job ID</b> → Inspection → Material Request →
+      RFQ → Quotation → Authorisation → Supplier PO → GRN → <b>Inventory Ledger</b> (receipt→reserve→issue→consume→return)
+      → Repair → Test → Dispatch → Invoice. Every transaction points back to one Job ID and one company.</p>
+    </div>
+  </section>
+
+  <!-- DEMO -->
+  <section id="demo" class="hidden">
+    <div class="card">
+      <h2>End-to-end demo <span class="muted">— runs REAL API calls against the live DB</span></h2>
+      <div class="row">
+        <button id="seedBtn" class="ghost">1 · Seed demo data</button>
+        <button id="runBtn">2 · Run receipt → reserve → issue → consume</button>
+        <button id="oversellBtn" class="ghost">3 · Try to oversell (must be blocked)</button>
+        <button id="clearBtn" class="ghost">Clear</button>
+      </div>
+      <div id="bal" class="bal"></div>
+      <div id="demoLog" class="log">Click “Seed demo data”, then “Run”. Watch stock move and the oversell get blocked.</div>
+    </div>
+  </section>
+
+  <!-- TABLES -->
+  <section id="tables" class="hidden">
+    <div class="card">
+      <h2>Live tables</h2>
+      <div class="row">
+        <div><label>Table</label><select id="tableSel"></select></div>
+        <button class="ghost" id="tableRefresh">Refresh</button>
+        <span id="tableMeta" class="muted"></span>
+      </div>
+      <div class="tablewrap"><table id="tableData"></table></div>
+    </div>
+  </section>
+
+  <!-- TESTER -->
+  <section id="tester" class="hidden">
+    <div class="card">
+      <h2>API tester <span class="muted">— for the full auto-generated form, use <a class="link" href="/api/docs" target="_blank">Swagger</a></span></h2>
+      <div class="row">
+        <div><label>Method</label>
+          <select id="mMethod"><option>GET</option><option>POST</option></select></div>
+        <div style="flex:1;min-width:260px"><label>Path (under /api)</label>
+          <input id="mPath" style="width:100%" value="/masters/items?status=ACTIVE" /></div>
+      </div>
+      <div class="row" style="gap:16px">
+        <div style="flex:1;min-width:200px"><label>Identity</label><div id="mWho" class="muted" style="padding:6px 0">sends your logged-in session's Bearer token</div></div>
+        <div style="flex:1;min-width:200px"><label>Idempotency-Key (POST writes)</label><input id="mIdem" style="width:100%" placeholder="auto if blank"/></div>
+      </div>
+      <div><label>JSON body (POST)</label><textarea id="mBody" placeholder='{ }'></textarea></div>
+      <div class="row" style="margin-top:10px"><button id="sendBtn">Send</button><span id="mStatus" class="muted"></span></div>
+      <div id="mResp" class="resp hidden"></div>
+    </div>
+  </section>
+
+  <!-- JOURNAL -->
+  <section id="journal" class="hidden">
+    <div class="card">
+      <h2>Inventory journal <span class="muted">— append-only ledger (newest first)</span></h2>
+      <button class="ghost" id="jRefresh" style="margin-bottom:10px">Refresh</button>
+      <div class="tablewrap"><table id="jData"></table></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const API = '/api';
+let COMPANY = null, SEED = null;
+
+// theme
+$('#themeBtn').onclick = () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+};
+
+// tabs
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  ['workflow','demo','tables','tester','journal'].forEach(id => $('#'+id).classList.add('hidden'));
+  $('#'+t.dataset.tab).classList.remove('hidden');
+  if (t.dataset.tab==='tables') loadTables();
+  if (t.dataset.tab==='journal') loadJournal();
+});
+
+// ---- auth session (memory only: a reload means logging in again) ----
+let SESSION = null; // { access, refresh, user }
+function setSession(s) {
+  SESSION = s;
+  $('#loginForm').classList.toggle('hidden', !!s);
+  $('#whoami').classList.toggle('hidden', !s);
+  $('#whoTxt').textContent = s ? `${s.user.employee_code} · ${s.user.role}` : '';
+  $('#mWho').textContent = s ? `Bearer token of ${s.user.employee_code} (${s.user.role})` : 'not logged in -- protected routes will return 401';
+}
+async function rawApi(method, path, body, headers) {
+  const opt = { method, headers: { ...(body ? {'Content-Type':'application/json'} : {}), ...headers } };
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(API+path, opt);
+  let data; try { data = await r.json(); } catch { data = await r.text(); }
+  return { ok:r.ok, status:r.status, data };
+}
+const pairToSession = d => ({ access: d.access_token, refresh: d.refresh_token, user: d.user });
+async function tryRefresh() {
+  if (!SESSION) return false;
+  const r = await rawApi('POST', '/auth/refresh', { refresh_token: SESSION.refresh }, {});
+  if (r.ok) { setSession(pairToSession(r.data)); return true; }
+  setSession(null); return false;
+}
+/** Sends the session's Bearer token; on 401 tries one silent refresh (rotating) and retries. */
+async function api(method, path, body, headers={}) {
+  const auth = () => SESSION ? { Authorization: 'Bearer ' + SESSION.access } : {};
+  let r = await rawApi(method, path, body, { ...auth(), ...headers });
+  if (r.status === 401 && SESSION && !path.startsWith('/auth/') && await tryRefresh()) {
+    r = await rawApi(method, path, body, { ...auth(), ...headers });
+  }
+  return r;
+}
+$('#loginForm').onsubmit = async (ev) => {
+  ev.preventDefault();
+  const r = await rawApi('POST', '/auth/login', { login_id: $('#loginId').value.trim(), password: $('#loginPw').value }, {});
+  $('#loginPw').value = '';
+  if (!r.ok) { alert('Login failed: ' + (r.data && r.data.message || r.status)); return; }
+  setSession(pairToSession(r.data));
+};
+$('#logoutBtn').onclick = async () => {
+  if (SESSION) await rawApi('POST', '/auth/logout', { refresh_token: SESSION.refresh }, {});
+  setSession(null);
+};
+setSession(null);
+
+// health + companies
+async function boot() {
+  try {
+    const h = await api('GET','/health');
+    $('#healthDot').className = 'dot ' + (h.ok && h.data.db==='up' ? 'ok':'bad');
+    $('#healthTxt').textContent = h.ok ? `API ok · db ${h.data.db}` : 'API error';
+  } catch { $('#healthDot').className='dot bad'; $('#healthTxt').textContent='API unreachable'; }
+  const c = await api('GET','/dashboard/companies');
+  const sel = $('#company'); sel.innerHTML='';
+  (c.data||[]).forEach(co => { const o=document.createElement('option'); o.value=co.id; o.textContent=`${co.entity_code} · ${co.name}`; sel.appendChild(o); });
+  if ((c.data||[]).length){ COMPANY=c.data[0].id; sel.value=COMPANY; }
+  sel.onchange=()=>{ COMPANY=sel.value; };
+  loadFlow();
+}
+function loadFlow(){
+  api('GET','/dashboard/overview').then(r=>{
+    const flow=$('#flow'); flow.innerHTML='';
+    (r.data.stages||[]).forEach((s,i)=>{
+      if(i) { const a=document.createElement('div'); a.className='arrow'; a.textContent='→'; flow.appendChild(a); }
+      const n=document.createElement('div'); n.className='node '+(s.status==='pending'?'pending':'');
+      n.innerHTML=`<span class="badge ${s.status}">${s.status}</span><div class="lbl">${s.label}</div><div class="cnt">${s.count}</div>`;
+      flow.appendChild(n);
+    });
+  });
+}
+
+// ---- tables ----
+async function loadTables(){
+  const t = await api('GET','/dashboard/tables');
+  const sel=$('#tableSel'); const prev=sel.value; sel.innerHTML='';
+  (t.data||[]).forEach(tb=>{ const o=document.createElement('option'); o.value=tb.name; o.textContent=`${tb.name} (${tb.rows})`; sel.appendChild(o); });
+  if(prev) sel.value=prev;
+  sel.onchange=loadRows; $('#tableRefresh').onclick=loadRows;
+  loadRows();
+}
+async function loadRows(){
+  const name=$('#tableSel').value; if(!name) return;
+  const r=await api('GET',`/dashboard/tables/${name}?limit=50`);
+  const rows=r.data.rows||[]; const tbl=$('#tableData');
+  if(!rows.length){ tbl.innerHTML='<tr><td class="muted">no rows</td></tr>'; $('#tableMeta').textContent='0 rows'; return; }
+  const cols=Object.keys(rows[0]);
+  tbl.innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>'+
+    rows.map(row=>'<tr>'+cols.map(c=>`<td title="${fmt(row[c])}">${fmt(row[c])}</td>`).join('')+'</tr>').join('');
+  $('#tableMeta').textContent=`${rows.length} rows (max 50)`;
+}
+function fmt(v){ if(v===null||v===undefined) return ''; if(typeof v==='object') return JSON.stringify(v); return String(v); }
+
+// ---- journal ----
+async function loadJournal(){
+  if(!COMPANY){ $('#jData').innerHTML='<tr><td class="muted">no company</td></tr>'; return; }
+  const r=await api('GET',`/inventory/journal?company_id=${COMPANY}`);
+  const rows=Array.isArray(r.data)?r.data:[]; const tbl=$('#jData');
+  if(!rows.length){ tbl.innerHTML='<tr><td class="muted">no movements yet — run the demo</td></tr>'; return; }
+  const cols=['posted_at','movement_type','qty','reference_kind','idempotency_key','status'];
+  tbl.innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>'+
+    rows.map(row=>'<tr>'+cols.map(c=>`<td title="${fmt(row[c])}">${fmt(row[c])}</td>`).join('')+'</tr>').join('');
+}
+$('#jRefresh').onclick=loadJournal;
+
+// ---- API tester ----
+$('#sendBtn').onclick=async()=>{
+  const m=$('#mMethod').value, p=$('#mPath').value.trim();
+  const headers={};  // api() adds the session's Bearer token
+  if(m==='POST') headers['Idempotency-Key']=$('#mIdem').value||('ui-'+Date.now());
+  let body=null; if(m==='POST' && $('#mBody').value.trim()){ try{ body=JSON.parse($('#mBody').value); }catch(e){ alert('Bad JSON: '+e.message); return; } }
+  const t0=performance.now(); const r=await api(m,p,body,headers); const ms=Math.round(performance.now()-t0);
+  $('#mStatus').innerHTML=`<span class="${r.ok?'l-ok':'l-bad'}">${r.status}</span> · ${ms}ms`;
+  $('#mResp').classList.remove('hidden'); $('#mResp').textContent=JSON.stringify(r.data,null,2);
+};
+
+// ---- demo ----
+const log=(msg,cls='')=>{ const d=$('#demoLog'); d.innerHTML+=`\n<span class="${cls}">${msg}</span>`; d.scrollTop=d.scrollHeight; };
+$('#clearBtn').onclick=()=>{ $('#demoLog').textContent=''; $('#bal').innerHTML=''; };
+let ITEM=null;
+async function showBal(){
+  if(!ITEM) return;
+  const r=await api('GET',`/inventory/availability?company_id=${SEED.company_id}&item_id=${ITEM}`);
+  const b=r.data; const byRole={}; (b.balances||[]).forEach(x=>byRole[x.role]=x.qty_on_hand);
+  $('#bal').innerHTML=[
+    ['Allocatable',b.allocatable],['Main store',byRole.MAIN_STORE||0],
+    ['Engineer',byRole.ENGINEER_HELD||0],['Consumed',byRole.CONSUMED||0]
+  ].map(([k,v])=>`<div class="pill"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+}
+$('#seedBtn').onclick=async()=>{
+  log('→ seeding demo company, employee, dictionary, locations…','l-step');
+  const r=await api('POST','/dashboard/seed');
+  if(!r.ok){ log('seed failed: '+JSON.stringify(r.data),'l-bad'); return; }
+  SEED=r.data; log('✓ seeded. company='+SEED.company_id.slice(0,8),'l-ok');
+  log('  logins: '+SEED.demo_logins.map(d=>d.login_id+' ('+d.role+(d.has_login?'':', no login')+')').join(', '),'l-ok');
+  log('  '+SEED.login_note, SEED.demo_logins.some(d=>d.has_login)?'':'l-bad');
+  if(!SESSION){ $('#loginId').value=SEED.login_id; $('#loginPw').focus(); log('→ now log in (top right) as '+SEED.login_id+', then click Run','l-step'); }
+  COMPANY=SEED.company_id;
+};
+$('#runBtn').onclick=async()=>{
+  if(!SEED){ log('seed first (button 1)','l-bad'); return; }
+  if(!SESSION){ log('log in first (top right) -- e.g. as '+SEED.login_id,'l-bad'); return; }
+  if(SESSION.user.role!=='PURCHASE') log('  note: logged in as '+SESSION.user.role+'; the demo flow is meant for a PURCHASE login','l-bad');
+  const H=a=>({'Idempotency-Key':a});
+  const run=Date.now(); const code='020202'+String(run).slice(-6);
+  log('\n→ create item '+code,'l-step');
+  let r=await api('POST','/masters/items',{item_code:code,record_type:'COMPONENT',standard_name:'Demo Cap 100uF 25V',cc:'02',ss:'02',tt:'02',base_uom:'Nos',use_case:'demo',stock_flag:'STOCK',duplicate_review_note:'demo'});
+  if(!r.ok){ log('  item create failed: '+JSON.stringify(r.data),'l-bad'); return; }
+  ITEM=r.data.id; log('  ✓ item '+ITEM.slice(0,8),'l-ok');
+  r=await api('POST',`/masters/items/${ITEM}/approve`,null); log('  ✓ approved → ACTIVE','l-ok');
+  const L=SEED.locations;
+  const steps=[
+    ['receipts',{to_location_id:L.MAIN_STORE},10,'RECEIPT 10 → main'],
+    ['reservations',{},4,'RESERVE 4'],
+    ['issues',{from_location_id:L.MAIN_STORE,to_location_id:L.ENGINEER_HELD},3,'ISSUE 3 main→engineer'],
+    ['consumptions',{from_location_id:L.ENGINEER_HELD,to_location_id:L.CONSUMED},3,'CONSUME 3'],
+  ];
+  for(const [ep,extra,qty,label] of steps){
+    log('→ '+label,'l-step');
+    const body={company_id:SEED.company_id,item_id:ITEM,uom:'Nos',qty,reference_id:ITEM,...extra};
+    const rr=await api('POST',`/inventory/${ep}`,body,H(run+'-'+ep));
+    log('  '+(rr.ok?'✓ ':'✗ ')+JSON.stringify(rr.data).slice(0,120), rr.ok?'l-ok':'l-bad');
+    await showBal(); await new Promise(z=>setTimeout(z,400));
+  }
+  log('\n✓ flow done — main 7, engineer 0, consumed 3, allocatable 3','l-ok');
+};
+$('#oversellBtn').onclick=async()=>{
+  if(!SEED||!ITEM){ log('run the flow first','l-bad'); return; }
+  log('\n→ attempt ISSUE 999 (should be blocked)','l-step');
+  const r=await api('POST','/inventory/issues',{company_id:SEED.company_id,item_id:ITEM,uom:'Nos',qty:999,reference_id:ITEM,from_location_id:SEED.locations.MAIN_STORE,to_location_id:SEED.locations.ENGINEER_HELD},{'Idempotency-Key':'oversell-'+Date.now()});
+  if(r.ok) log('  ✗ UNEXPECTED: oversell allowed!','l-bad');
+  else log('  ✓ blocked with '+r.status+' '+JSON.stringify(r.data),'l-ok');
+};
+
+boot();
+</script>
+</body>
+</html>
