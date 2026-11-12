@@ -237,6 +237,7 @@ model br03_item_catalog_bridge {
   approval_status                                                                                               String                         @db.VarChar(20)
   is_active                                                                                                     Boolean                        @default(true)
   last_synced_at                                                                                                DateTime                       @default(now()) @db.Timestamptz(6)
+  fdn_item_master                                                                                               fdn_item_master                @relation(fields: [br01_item_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "br03_item_catalog_bridge_item_fk")
   br03_material_request_lines                                                                                   br03_material_request_lines[]
   br04_rfq_lines                                                                                                br04_rfq_lines[]
   br04_stock_check_lines                                                                                        br04_stock_check_lines[]
@@ -3351,6 +3352,7 @@ model employees {
   fdn_item_master_fdn_item_master_released_by_idToemployees                                                     fdn_item_master[]                     @relation("fdn_item_master_released_by_idToemployees")
   fdn_item_master_fdn_item_master_tech_approved_by_idToemployees                                                fdn_item_master[]                     @relation("fdn_item_master_tech_approved_by_idToemployees")
   fdn_suppliers                                                                                                 fdn_suppliers[]
+  file_uploads                                                                                                  file_uploads[]
   inward_discrepancies                                                                                          inward_discrepancies[]
   inward_documents                                                                                              inward_documents[]
   inward_equipment_groups                                                                                       inward_equipment_groups[]
@@ -3631,6 +3633,7 @@ model fdn_item_master {
   effective_revision                                       Int                           @default(0)
   superseded_by_id                                         String?                       @db.Uuid
   updated_at                                               DateTime                      @default(now()) @db.Timestamptz(6)
+  br03_item_catalog_bridge                                 br03_item_catalog_bridge?
   br07_material_issues                                     br07_material_issues[]
   br08_invoice_sales_lines                                 br08_invoice_sales_lines[]
   br11_enquiry_lines                                       br11_enquiry_lines[]
@@ -3998,6 +4001,7 @@ model legal_entities {
   fdn_inventory_journal                                                   fdn_inventory_journal[]
   fdn_inventory_locations                                                 fdn_inventory_locations[]
   fdn_inventory_reservations                                              fdn_inventory_reservations[]
+  file_uploads                                                            file_uploads[]
   inward_equipment_groups                                                 inward_equipment_groups[]
   inward_equipment_units                                                  inward_equipment_units[]
   inward_receipts                                                         inward_receipts[]
@@ -4188,4 +4192,22 @@ model br09_refund_replacement_reviews {
   employees            employees            @relation(fields: [company_id, reviewed_by_id], references: [company_id, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([company_id, decision_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model file_uploads {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  company_id     String         @db.Uuid
+  uploaded_by_id String         @db.Uuid
+  original_name  String         @db.VarChar(255)
+  content_type   String         @db.VarChar(100)
+  size_bytes     BigInt
+  sha256         String         @db.Char(64)
+  storage_key    String         @unique
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  legal_entities legal_entities @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  employees      employees      @relation(fields: [uploaded_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id, created_at(sort: Desc)], map: "file_uploads_company_created_idx")
 }

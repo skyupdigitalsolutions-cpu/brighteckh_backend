@@ -30,10 +30,16 @@ export class MastersController {
   @Post('items/:id/approve') approveItem(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: AuthUser) {
     return this.svc.approveItem(id, actor.id);
   }
-  @ApiOperation({ summary: 'List items by status (ordered by item_code)' })
+  @ApiOperation({ summary: 'List items by status (ordered by item_code), optionally searched' })
   @ApiQuery(STATUS_QUERY)
+  @ApiQuery({
+    name: 'search', required: false,
+    description: 'Case-insensitive substring of item_code, standard_name or short_description (max 100 chars)',
+  })
   @ApiOkResponse({ type: [FdnItemMasterRow] })
-  @Get('items') listItems(@Query('status') s?: string) { return this.svc.listItems(s ?? 'ACTIVE'); }
+  @Get('items') listItems(@Query('status') s?: string, @Query('search') search?: string) {
+    return this.svc.listItems(s ?? 'ACTIVE', 50, search);
+  }
 
   @ApiOperation({ summary: 'Item detail' })
   @ApiOkResponse({ type: FdnItemMasterRow })

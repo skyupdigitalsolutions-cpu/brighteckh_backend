@@ -17,6 +17,7 @@ import { Br10Module } from './modules/br10/br10.module';
 import { Br11Module } from './modules/br11/br11.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { AuthModule } from './modules/auth/auth.module';
     Br10Module,
     Br11Module,
     DashboardModule,
+    UploadsModule,
   ],
   controllers: [HealthController],
 })

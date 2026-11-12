@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
-  Br03InspectionReportsRow, Br03InspectionReportVersionsRow, Br03InspectionSessionsRow,
+  Br03InspectionReportsRow, Br03InspectionReportVersionsRow, Br03InspectionReviewsRow, Br03InspectionSessionsRow,
   Br03MaterialChangeRequestsRow, Br03MaterialRequestLinesRow, Br03MaterialRequestsRow, Br03VEngineerTimeTotalsRow,
 } from '../../../common/swagger/rows.generated';
 
@@ -16,6 +16,12 @@ export class InspectionSessionsResponse {
 export class InspectionReportDetail extends Br03InspectionReportsRow {
   @ApiProperty({ type: [Br03InspectionReportVersionsRow], description: 'Ordered by version_no' })
   versions!: Br03InspectionReportVersionsRow[];
+  @ApiProperty({
+    type: [Br03InspectionReviewsRow],
+    description: "Purchase ACCEPT/RETURN decisions on this report's versions, ordered by reviewed_at (G13). "
+      + 'review_comment is always present on a RETURN.',
+  })
+  reviews!: Br03InspectionReviewsRow[];
 }
 
 /** GET /material-requests/:id */
@@ -30,4 +36,24 @@ export class InspectionVersionResult {
   report!: Br03InspectionReportsRow;
   @ApiProperty({ type: Br03InspectionReportVersionsRow, description: 'The submitted / reviewed version' })
   version!: Br03InspectionReportVersionsRow;
+}
+
+/**
+ * GET /material-requests/:id/catalogue (G10) -- the catalogue-bridge rows a material line can use
+ * (bridge APPROVED + active, the same test the line trigger applies), with the BR-01 Item Master
+ * record each one points at. Send item_bridge_id to POST /material-requests/:id/lines.
+ */
+export class CatalogueItem {
+  @ApiProperty({ format: 'uuid', description: 'Send this as item_bridge_id when adding a line' }) item_bridge_id!: string;
+  @ApiProperty({ format: 'uuid' }) br01_item_id!: string;
+  @ApiProperty({ description: 'Bridge item code' }) item_code!: string;
+  @ApiProperty({ description: 'Bridge item name' }) item_name!: string;
+  @ApiProperty({ description: 'UOM the line will snapshot' }) uom!: string;
+  @ApiProperty() allows_fraction!: boolean;
+  @ApiProperty({ description: 'Decimal places a quantity may carry (0 = whole numbers)' }) qty_precision!: number;
+  @ApiProperty({ nullable: true, type: 'string', description: 'fdn_item_master.item_code; null if the bridge points at no master row' })
+  master_item_code!: string | null;
+  @ApiProperty({ nullable: true, type: 'string' }) master_standard_name!: string | null;
+  @ApiProperty({ nullable: true, type: 'string', enum: ['DRAFT', 'UNDER_REVIEW', 'APPROVED', 'ACTIVE', 'ON_HOLD', 'INACTIVE', 'SUPERSEDED'] })
+  master_status!: string | null;
 }

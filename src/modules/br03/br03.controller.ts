@@ -5,12 +5,12 @@ import {
   Br03MaterialChangeRequestsRow, Br03MaterialRequestLinesRow, Br03MaterialRequestsRow,
 } from '../../common/swagger/rows.generated';
 import {
-  InspectionReportDetail, InspectionSessionsResponse, InspectionVersionResult, MaterialRequestDetail,
+  CatalogueItem, InspectionReportDetail, InspectionSessionsResponse, InspectionVersionResult, MaterialRequestDetail,
 } from './dto/br03.responses';
 import { ApiAuth, ApiStdErrors } from '../../common/swagger/api-docs';
 import { Br03Service } from './br03.service';
 import {
-  AddInspectionMediaDto, AddMaterialLineDto, CreateChangeRequestDto, CreateMaterialRequestDto,
+  AddInspectionMediaDto, AddMaterialLineDto, CatalogueQueryDto, CreateChangeRequestDto, CreateMaterialRequestDto,
   CustodyAckDto, PauseSessionDto, ReviewChangeRequestDto, ReviewInspectionDto, SubmitInspectionVersionDto,
 } from './dto/br03.dto';
 import { RolesGuard } from '../../common/auth/roles.guard';
@@ -84,10 +84,17 @@ export class Br03Controller {
   }
 
   @Get('jobs/:id/inspection-report')
-  @ApiOperation({ summary: "Inspection report with all versions" })
+  @ApiOperation({ summary: "Inspection report with all versions and Purchase's review decisions/comments" })
   @ApiOkResponse({ type: InspectionReportDetail })
   getReportByJob(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.svc.getReportByJob(id, actor);
+  }
+
+  @Get('inspection-reports/:id/media')
+  @ApiOperation({ summary: 'Photos/videos recorded on an inspection report (all versions), oldest first' })
+  @ApiOkResponse({ type: [Br03InspectionMediaRow] })
+  listMedia(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
+    return this.svc.listReportMedia(id, actor);
   }
 
   @ApiCreatedResponse({ type: Br03InspectionMediaRow })
@@ -133,6 +140,21 @@ export class Br03Controller {
   @ApiOkResponse({ type: MaterialRequestDetail })
   getMaterialRequest(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.svc.getMaterialRequest(id, actor);
+  }
+
+  @Get('material-requests/:id/catalogue')
+  @ApiOperation({
+    summary: 'Parts that can be added to this request: APPROVED + active catalogue-bridge rows with their item_bridge_id',
+    description:
+      'Same rule the line trigger applies. Rows are ordered by bridge item_code; use `search` to narrow. ' +
+      'Since migration 023 the bridge is synced from the Item Master: an APPROVED or ACTIVE item is listed, ' +
+      'DRAFT/UNDER_REVIEW/ON_HOLD/INACTIVE/SUPERSEDED items are not, and quantities are whole numbers only ' +
+      '(CLIENT-UNCONFIRMED rules). There is no "request a new item" workflow: when a part is missing, the ' +
+      'client should tell the engineer to ask Purchase to add it to the Item Master; it appears here once approved.',
+  })
+  @ApiOkResponse({ type: [CatalogueItem] })
+  catalogue(@Param('id', ParseUUIDPipe) id: string, @Query() q: CatalogueQueryDto, @CurrentActor() actor: Actor) {
+    return this.svc.catalogue(id, actor, q.search, q.limit ? Number(q.limit) : 50);
   }
 
   @ApiCreatedResponse({ type: Br03MaterialRequestLinesRow })

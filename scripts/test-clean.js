@@ -34,6 +34,8 @@ const ROOTS = [
   { table: 'custody_locations', where: `location_code ~ '^IT-RACK-[0-9A-Z]+$' AND location_name ~ '^IT Rack [0-9A-Z]+$'` },
   { table: 'assemblies', where: `assembly_code ~ '^IT-ASM-[0-9A-Z]+$' AND assembly_name ~ '^IT Drive [0-9A-Z]+$'` },
   { table: 'fdn_item_master', where: `duplicate_review_note ~ '^integrity run [0-9A-Z]+$' AND standard_name ~ '^IT .+ [0-9A-Z]+$'` },
+  // Legacy (pre-023) hand-inserted bridge fixtures. Since 023 bridge rows are synced from fdn_item_master and are
+  // reached through the bridge -> item FK closure instead.
   { table: 'br03_item_catalog_bridge', where: `item_code ~ '^IT-[0-9A-Z]+-[0-9a-f]{8}$' AND item_name ~ '^IT bridge [0-9A-Z]+$'` },
   // inventory.e2e-spec company-scoping test: the fixed "company B" (nothing may reference it -- the guard blocks writes).
   { table: 'legal_entities', mixedCheck: false, where: `entity_code = 'ZZB' AND name = 'IT test company B (integrity suite)'` },

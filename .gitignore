@@ -9,3 +9,6 @@ npm-debug.log*
 coverage/
 /mnt/
 *.tmp
+
+# File uploads (POST /api/uploads)
+/storage/

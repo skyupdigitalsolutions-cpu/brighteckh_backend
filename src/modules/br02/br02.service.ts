@@ -242,6 +242,38 @@ export class Br02Service {
     return { ...job, current_assignment: assignment.rows[0] ?? null };
   }
 
+  /**
+   * G1: jobs whose CURRENT assignment is the caller (any response: PENDING jobs still need custody-ack),
+   * in the caller's company. Read-only. Ordered CRITICAL -> URGENT -> NORMAL, then newest job first.
+   */
+  async listMyJobs(actor: Actor, status?: string) {
+    const jobs = await this.pg.query(
+      `SELECT j.*, a.id AS __assignment_id,
+              r.jin_number, u.unit_number,
+              (SELECT count(*)::int FROM inward_equipment_units u2 WHERE u2.group_id = u.group_id) AS units_in_group,
+              u.serial_number, u.observed_make, u.observed_model,
+              g.assembly_id, asm.assembly_code, asm.assembly_name
+         FROM job_assignments a
+         JOIN service_jobs j              ON j.id = a.job_id
+         JOIN inward_receipts r           ON r.id = j.inward_id
+         JOIN inward_equipment_units u    ON u.id = j.unit_id
+         JOIN inward_equipment_groups g   ON g.id = u.group_id
+         JOIN assemblies asm              ON asm.id = g.assembly_id
+        WHERE a.engineer_id = $1 AND a.is_current AND j.company_id = $2
+          AND ($3::text IS NULL OR j.status = $3)
+        ORDER BY CASE j.priority WHEN 'CRITICAL' THEN 0 WHEN 'URGENT' THEN 1 ELSE 2 END, j.created_at DESC
+        LIMIT 500`,
+      [actor.id, actor.companyId, status ?? null],
+    );
+    if (!jobs.rows.length) return [];
+    // Assignment rows read separately so their timestamps serialise exactly like GET /jobs/:id.
+    const assignments = await this.pg.query(
+      `SELECT * FROM job_assignments WHERE id = ANY($1::uuid[])`, [jobs.rows.map((j) => j.__assignment_id)],
+    );
+    const byId = new Map(assignments.rows.map((a) => [a.id, a]));
+    return jobs.rows.map(({ __assignment_id, ...job }) => ({ ...job, current_assignment: byId.get(__assignment_id) }));
+  }
+
   async assignEngineer(jobId: string, dto: AssignEngineerDto, actor: Actor) {
     try {
       return await this.pg.tx(async (client) => {

@@ -460,6 +460,50 @@ The integrity suite sets these temporarily and restores them afterwards.
 10. Intercompany transfers (11B-07, P-14), reminder cadence (11C-08, P-06), BR-10 sales MIS report: not built.
 11. Number formats `SE/SQ/SO/SOUT-<CODE>-000001` follow the house convention; the doc proposed 7 digits.
 
+## 4i. Frontend lookups + uploads — migrations 022/023, src/modules/uploads (+ BR-02/BR-03/Masters reads)
+
+Additive read endpoints for gaps found building the Engineer UI (12 Nov 2026). No existing table changed;
+existing routes behave as before (two gained optional data: `search` param, `reviews[]` field). Tests:
+`test/lookups.e2e-spec.ts`.
+- G1 `GET /my-jobs?status=` (ENGINEER): jobs whose CURRENT assignment is the caller (incl. PENDING custody), with
+  JIN, unit n of m, serial/make/model and the `assemblies` name. CRITICAL→URGENT→NORMAL, newest first, max 500.
+- G4 `POST /uploads` (multipart, field `file`, any role) → `file_uri = /api/uploads/<id>`; `GET /uploads/:id` streams
+  bytes to the same company only. Types: jpeg/png/webp/heic/heif/mp4/mov/pdf; declared type must match the bytes
+  (no SVG/HTML). `file_uploads` (022) is append-only + uploader-in-company trigger; bytes on disk under `UPLOAD_DIR`
+  (default `./storage/uploads`, git-ignored), `UPLOAD_MAX_BYTES` default 25 MB. Existing media endpoints still accept
+  ANY `file_uri` — they do not require an upload row.
+- G9 `GET /inspection-reports/:id/media`. There is NO BR-07 media table, so no repair equivalent exists.
+- G10 `GET /material-requests/:id/catalogue?search=&limit=`: bridge rows the line trigger accepts (APPROVED + active)
+  with `item_bridge_id` + the Item Master row.
+- G13 `GET /jobs/:id/inspection-report` now also returns `reviews[]` (Purchase ACCEPT/RETURN + comment).
+- G5 `GET /masters/items?search=` (optional; without it the query is unchanged).
+
+**OPEN DECISIONS (lookups, flagged, not resolved):**
+1. ~~Bridge has no writer~~ — addressed by migration 023 (below), with CLIENT-UNCONFIRMED rules.
+2. Uploaded files live on the API host's disk; no retention/backup/virus-scan policy, no object storage.
+3. Media endpoints don't verify that `file_uri` points at a `file_uploads` row of the same company (would change
+   existing behaviour).
+
+**Migration 023 — Item Master → catalogue bridge sync (12 Nov 2026):**
+- `trg_br03_sync_item_bridge` (AFTER INSERT / UPDATE OF status, standard_name, base_uom on `fdn_item_master`) upserts
+  the item's `br03_item_catalog_bridge` row (code, name, UOM, status). The trigger is the ONLY writer of the bridge;
+  never insert bridge rows by hand (test fixtures read the synced row via `bridge()` in `test/helpers.ts`).
+- Existing items were backfilled. The bridge now has the FK `br03_item_catalog_bridge_item_fk → fdn_item_master(id)`.
+- Bridge rows are never deleted (many tables reference them); a de-listed item's row becomes `INACTIVE`.
+- Changing an item's `base_uom` updates the bridge UOM, so an existing material line with the old `uom_snapshot`
+  can no longer be edited (the line trigger compares them). Changing UOM on a live item is a BR-01B governance question.
+
+**CLIENT-UNCONFIRMED (built with developer defaults; Brightech must confirm — same pattern as DOFA/authorities):**
+1. **Status mapping** (mirrors the ledger's APPROVED/ACTIVE rule, `br03_bridge_status_for()`): Item Master
+   APPROVED/ACTIVE → bridge APPROVED (requestable); DRAFT/UNDER_REVIEW → PENDING_APPROVAL (not yet);
+   ON_HOLD/INACTIVE/SUPERSEDED → INACTIVE + `is_active=false` (not requestable). Bridge REJECTED is never produced.
+2. **Whole-number quantities only:** synced rows get `allows_fraction=false`, `qty_precision=0`. Item Master has no
+   fraction/precision field; adding one needs **BR-01B owner sign-off** (then a migration + sync change). The sync
+   never overwrites these two columns on an existing row.
+3. **No "request a new item" workflow:** an uncatalogued part is handled outside the system — the engineer asks
+   Purchase, Purchase creates + approves it in the Item Master, and it syncs. The UI shows an empty-catalogue note
+   ("Part not listed? Ask Purchase to add it to the Item Master.").
+
 ## 4e. Working calendar — migration 012, src/modules/calendar
 
 Client-confirmed: both companies Mon–Sat; Mon–Fri 09:30–18:30, Sat 09:30–16:00; lunch

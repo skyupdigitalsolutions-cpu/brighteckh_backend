@@ -6,6 +6,7 @@ import { OperationObject, ParameterObject } from '@nestjs/swagger/dist/interface
 import { BEARER_SCHEME } from './common/swagger/api-docs';
 import { join } from 'path';
 import { AppModule } from './app.module';
+import { uploadMaxBytes } from './modules/uploads/uploads.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -13,6 +14,9 @@ async function bootstrap() {
     new FastifyAdapter(),
   );
   app.enableCors({ origin: true });
+  // POST /api/uploads (G4): one file per request, size-capped at the parser.
+  const fastifyMultipart = (await import('@fastify/multipart')).default;
+  await app.register(fastifyMultipart as any, { limits: { fileSize: uploadMaxBytes(), files: 1, fields: 0, parts: 1 } });
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );
@@ -49,6 +53,7 @@ async function bootstrap() {
       .addTag('BR-09 After-Sales & Warranty', 'Complaint cases, repeat returns (BR-02 links), technical assessment, configured claim/goodwill approval, credit-note requests to Finance, case closure, quality analytics')
       .addTag('BR-10 Management MIS & RBAC', 'Read-only management reports (company + row scoped, masked, audited) and the R_* role-binding / named-grant permission layer')
       .addTag('Working Calendar', 'Per-company working hours, lunch break, holidays; working-time due-date maths')
+      .addTag('Uploads', 'File storage behind every file_uri (photos, videos, PDFs); company-scoped reads')
       .addTag('Health')
       .build();
     SwaggerModule.setup('api/docs', app, tidyHeaderParams(SwaggerModule.createDocument(app, cfg)));

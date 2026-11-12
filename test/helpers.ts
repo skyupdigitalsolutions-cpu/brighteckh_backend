@@ -209,7 +209,7 @@ export async function otherCompany(c: Client): Promise<string> {
  * A login-capable fixture employee in ANOTHER company (cross-company denial tests).
  * Code/name follow the test:clean root patterns (IT-<ROLE>-<RUN><suffix>).
  */
-export async function employeeIn(c: Client, companyId: string, code: 'SAL' | 'PUR' | 'FIN', role: string, suffix: string): Promise<string> {
+export async function employeeIn(c: Client, companyId: string, code: 'SAL' | 'PUR' | 'FIN' | 'ENG', role: string, suffix: string): Promise<string> {
   const employeeCode = `IT-${code}-${RUN}${suffix}`;
   const id = (await c.query(
     `INSERT INTO employees(company_id,employee_code,full_name,role_code) VALUES ($1,$2,$3,$4) RETURNING id`,
@@ -238,11 +238,18 @@ export async function createItem(actorId: string, approve: boolean, label: strin
   throw new Error('could not allocate a unique item code');
 }
 
-/** BR-03 catalog bridge row (read-only cache of the BR-01 item master; no API writes it). */
+/**
+ * BR-03 catalog bridge row for an Item Master item. Since migration 023 the bridge is written only by the
+ * fdn_item_master sync trigger, so this READS the synced row and asserts it has the expected status
+ * (APPROVED for an approved item, PENDING_APPROVAL for a DRAFT one).
+ */
 export async function bridge(c: Client, itemId: string, status: 'APPROVED' | 'PENDING_APPROVAL'): Promise<string> {
-  return (await c.query(
-    `INSERT INTO br03_item_catalog_bridge(br01_item_id,item_code,item_name,uom,approval_status)
-     VALUES ($1,$2,$3,'NOS',$4) RETURNING id`,
-    [itemId, `IT-${RUN}-${itemId.slice(0, 8)}`, `IT bridge ${RUN}`, status],
-  )).rows[0].id;
+  const row = (await c.query(
+    `SELECT id, approval_status FROM br03_item_catalog_bridge WHERE br01_item_id=$1`, [itemId],
+  )).rows[0];
+  if (!row) throw new Error(`no synced bridge row for item ${itemId}`);
+  if (row.approval_status !== status) {
+    throw new Error(`bridge row for item ${itemId} is ${row.approval_status}, expected ${status}`);
+  }
+  return row.id;
 }

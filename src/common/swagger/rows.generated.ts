@@ -518,6 +518,68 @@ export class Br03MaterialChangeRequestsRow {
   review_comment!: string | null;
 }
 
+/** Row of `br03_inspection_reviews` as returned by SELECT * */
+export class Br03InspectionReviewsRow {
+  @ApiProperty({ type: "string", format: "uuid" })
+  id!: string;
+  @ApiProperty({ type: "string", format: "uuid" })
+  version_id!: string;
+  @ApiProperty({ type: "string", format: "uuid" })
+  reviewer_id!: string;
+  @ApiProperty({ enum: ["ACCEPT","RETURN"] })
+  review_decision!: string;
+  @ApiProperty({ type: "string", nullable: true })
+  review_comment!: string | null;
+  @ApiProperty({ type: "string", format: "date-time" })
+  reviewed_at!: string;
+}
+
+/** Row of `br03_item_catalog_bridge` as returned by SELECT * */
+export class Br03ItemCatalogBridgeRow {
+  @ApiProperty({ type: "string", format: "uuid" })
+  id!: string;
+  @ApiProperty({ type: "string", format: "uuid" })
+  br01_item_id!: string;
+  @ApiProperty({ type: "string" })
+  item_code!: string;
+  @ApiProperty({ type: "string" })
+  item_name!: string;
+  @ApiProperty({ type: "string" })
+  uom!: string;
+  @ApiProperty({ type: "boolean" })
+  allows_fraction!: boolean;
+  @ApiProperty({ type: "integer" })
+  qty_precision!: number;
+  @ApiProperty({ enum: ["PENDING_APPROVAL","APPROVED","REJECTED","INACTIVE"] })
+  approval_status!: string;
+  @ApiProperty({ type: "boolean" })
+  is_active!: boolean;
+  @ApiProperty({ type: "string", format: "date-time" })
+  last_synced_at!: string;
+}
+
+/** Row of `file_uploads` as returned by SELECT * */
+export class FileUploadsRow {
+  @ApiProperty({ type: "string", format: "uuid" })
+  id!: string;
+  @ApiProperty({ type: "string", format: "uuid" })
+  company_id!: string;
+  @ApiProperty({ type: "string", format: "uuid" })
+  uploaded_by_id!: string;
+  @ApiProperty({ type: "string" })
+  original_name!: string;
+  @ApiProperty({ type: "string" })
+  content_type!: string;
+  @ApiProperty({ type: "string", format: "int64", description: "bigint, returned as string" })
+  size_bytes!: string;
+  @ApiProperty({ type: "string" })
+  sha256!: string;
+  @ApiProperty({ type: "string" })
+  storage_key!: string;
+  @ApiProperty({ type: "string", format: "date-time" })
+  created_at!: string;
+}
+
 /** Row of `br04_stock_checks` as returned by SELECT * */
 export class Br04StockChecksRow {
   @ApiProperty({ type: "string", format: "uuid" })

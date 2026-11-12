@@ -26,6 +26,8 @@ const TABLES = [
   'br03_inspection_sessions', 'br03_v_engineer_time_totals', 'br03_inspection_reports',
   'br03_inspection_report_versions', 'br03_material_requests', 'br03_material_request_lines',
   'br03_material_change_requests',
+  // 022 lookups (G9 / G10 / G13 / G4)
+  'br03_inspection_reviews', 'br03_item_catalog_bridge', 'file_uploads',
   // BR-04
   'br04_stock_checks', 'br04_stock_check_lines', 'br04_shortage_sources', 'br04_rfqs', 'br04_rfq_lines',
   'br04_rfq_supplier_invites', 'br04_supplier_offer_headers', 'br04_supplier_offer_lines',

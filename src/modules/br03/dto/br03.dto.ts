@@ -1,4 +1,5 @@
-import { IsIn, IsNumber, IsObject, IsOptional, IsPositive, IsString, IsUUID } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsIn, IsNumber, IsObject, IsOptional, IsPositive, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 
 export class CustodyAckDto {
   @IsOptional() @IsString() condition_note?: string;
@@ -53,4 +54,12 @@ export class CreateChangeRequestDto {
 export class ReviewChangeRequestDto {
   @IsIn(['ACCEPTED', 'REJECTED']) decision!: string;
   @IsOptional() @IsString() comment?: string;
+}
+
+/** GET /material-requests/:id/catalogue (G10) */
+export class CatalogueQueryDto {
+  @ApiPropertyOptional({ description: 'Case-insensitive match on item code or name (bridge and Item Master). Max 100 chars.' })
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+  @ApiPropertyOptional({ description: 'Max rows, 1-200 (default 50)', example: '50' })
+  @IsOptional() @Matches(/^(?:[1-9]\d?|1\d\d|200)$/, { message: 'limit must be an integer between 1 and 200' }) limit?: string;
 }

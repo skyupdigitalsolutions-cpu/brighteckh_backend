@@ -259,7 +259,26 @@ export class Br03Service {
     const versions = await this.pg.query(
       `SELECT * FROM br03_inspection_report_versions WHERE report_id=$1 ORDER BY version_no`, [report.rows[0].id],
     );
-    return { ...report.rows[0], versions: versions.rows };
+    // G13: Purchase's decisions (a RETURN always carries its comment) so the engineer sees why.
+    const reviews = await this.pg.query(
+      `SELECT r.* FROM br03_inspection_reviews r
+         JOIN br03_inspection_report_versions v ON v.id = r.version_id
+        WHERE v.report_id=$1 ORDER BY r.reviewed_at, r.id`, [report.rows[0].id],
+    );
+    return { ...report.rows[0], versions: versions.rows, reviews: reviews.rows };
+  }
+
+  /** G9: every media row on a report (any version, newest last). Read-only; company-scoped. */
+  async listReportMedia(reportId: string, actor: Actor) {
+    const report = await this.pg.query<{ company_id: string }>(
+      `SELECT company_id FROM br03_inspection_reports WHERE id=$1`, [reportId],
+    );
+    if (!report.rows[0]) throw new NotFoundException('inspection report not found');
+    if (report.rows[0].company_id !== actor.companyId) throw new ForbiddenException('report belongs to another company');
+    const r = await this.pg.query(
+      `SELECT * FROM br03_inspection_media WHERE report_id=$1 ORDER BY uploaded_at, id`, [reportId],
+    );
+    return r.rows;
   }
 
   private async loadReport(client: PoolClient, reportId: string, actor: Actor) {
@@ -489,6 +508,36 @@ export class Br03Service {
       `SELECT * FROM br03_material_change_requests WHERE material_request_id=$1 ORDER BY id`, [id],
     );
     return { ...r.rows[0], lines: lines.rows, change_requests: changeRequests.rows };
+  }
+
+  /**
+   * G10: catalogue-bridge rows usable on a material line -- exactly the rows br03_guard_material_line
+   * accepts (bridge approval_status='APPROVED' AND is_active), joined to the BR-01 Item Master they cache.
+   * Read-only. The bridge is global (no company column); the request id scopes the caller's company.
+   */
+  async catalogue(requestId: string, actor: Actor, search?: string, limit = 50) {
+    const req = await this.pg.query<{ company_id: string }>(
+      `SELECT company_id FROM br03_material_requests WHERE id=$1`, [requestId],
+    );
+    if (!req.rows[0]) throw new NotFoundException('material request not found');
+    if (req.rows[0].company_id !== actor.companyId) throw new ForbiddenException('request belongs to another company');
+
+    const term = search?.trim() ? `%${search.trim().replace(/[\\%_]/g, (ch) => `\\${ch}`)}%` : null;
+    const r = await this.pg.query(
+      `SELECT b.id AS item_bridge_id, b.br01_item_id, b.item_code, b.item_name, b.uom,
+              b.allows_fraction, b.qty_precision,
+              m.item_code AS master_item_code, m.standard_name AS master_standard_name, m.status AS master_status
+         FROM br03_item_catalog_bridge b
+         LEFT JOIN fdn_item_master m ON m.id = b.br01_item_id
+        WHERE b.approval_status = 'APPROVED' AND b.is_active
+          AND ($1::text IS NULL
+               OR b.item_code ILIKE $1 OR b.item_name ILIKE $1
+               OR m.item_code ILIKE $1 OR m.standard_name ILIKE $1)
+        ORDER BY b.item_code
+        LIMIT $2`,
+      [term, limit],
+    );
+    return r.rows;
   }
 
   async listMaterialRequests(actor: Actor, status?: string) {

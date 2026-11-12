@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateInwardReceiptDto {
@@ -45,4 +46,12 @@ export class AssignEngineerDto {
 export class LinkRepeatJobDto {
   @IsUUID() repeat_of_job_id!: string;
   @IsString() return_reason!: string;
+}
+
+export const JOB_STATUSES = ['JOB_CREATED', 'AWAITING_ASSIGNMENT', 'ASSIGNED', 'ACCEPTED', 'INSPECTION', 'ON_HOLD', 'CANCELLED', 'CLOSED'];
+
+/** GET /my-jobs (G1) */
+export class MyJobsQueryDto {
+  @ApiPropertyOptional({ enum: JOB_STATUSES, description: 'Only jobs in this service_jobs.status (default: all)' })
+  @IsOptional() @IsIn(JOB_STATUSES) status?: string;
 }

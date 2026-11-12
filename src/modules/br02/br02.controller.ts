@@ -1,16 +1,16 @@
-import { Body, Controller, Get, Param, Post, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   EquipmentPhotosRow, InwardEquipmentGroupsRow, InwardReceiptsRow, JobAssignmentsRow, JobRepeatLinksRow,
 } from '../../common/swagger/rows.generated';
 import {
-  ExpandGroupResponse, InwardReceiptDetail, JobDetail, VerifyUnitResponse,
+  ExpandGroupResponse, InwardReceiptDetail, JobDetail, MyJobRow, VerifyUnitResponse,
 } from './dto/br02.responses';
 import { ApiAuth, ApiStdErrors } from '../../common/swagger/api-docs';
 import { Br02Service } from './br02.service';
 import {
   AddUnitPhotoDto, AssignEngineerDto, CreateEquipmentGroupDto, CreateInwardReceiptDto,
-  ExpandEquipmentGroupDto, LinkRepeatJobDto,
+  ExpandEquipmentGroupDto, LinkRepeatJobDto, MyJobsQueryDto,
 } from './dto/br02.dto';
 import { RolesGuard } from '../../common/auth/roles.guard';
 import { Roles } from '../../common/auth/roles.decorator';
@@ -67,6 +67,17 @@ export class Br02Controller {
   @Roles(Role.PURCHASE)
   verify(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.svc.verifyUnit(id, actor);
+  }
+
+  @Get('my-jobs')
+  @Roles(Role.ENGINEER)
+  @ApiOperation({
+    summary: "The caller's jobs: current engineer assignment is the caller (incl. PENDING custody)",
+    description: 'Ordered CRITICAL -> URGENT -> NORMAL, then newest first. Max 500 rows.',
+  })
+  @ApiOkResponse({ type: [MyJobRow] })
+  myJobs(@Query() q: MyJobsQueryDto, @CurrentActor() actor: Actor) {
+    return this.svc.listMyJobs(actor, q.status);
   }
 
   @Get('jobs/:id')

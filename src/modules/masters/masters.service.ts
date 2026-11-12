@@ -47,9 +47,25 @@ export class MastersService {
     return r.rows[0];
   }
 
-  listItems(status = 'ACTIVE', limit = 50) {
+  listItems(status = 'ACTIVE', limit = 50, search?: unknown) {
+    if (search !== undefined && typeof search !== 'string') throw new BadRequestException('search must be a single string');
+    const term = search?.trim();
+    if (!term) {
+      // Unchanged original query when no search is given.
+      return this.pg
+        .query(`SELECT * FROM fdn_item_master WHERE status=$1 ORDER BY item_code LIMIT $2`, [status, limit])
+        .then((r) => r.rows);
+    }
+    if (term.length > 100) throw new BadRequestException('search must be at most 100 characters');
+    // G5: case-insensitive substring on code / name / short description; LIKE wildcards in the term are literal.
+    const like = `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
     return this.pg
-      .query(`SELECT * FROM fdn_item_master WHERE status=$1 ORDER BY item_code LIMIT $2`, [status, limit])
+      .query(
+        `SELECT * FROM fdn_item_master
+          WHERE status=$1 AND (item_code ILIKE $3 OR standard_name ILIKE $3 OR short_description ILIKE $3)
+          ORDER BY item_code LIMIT $2`,
+        [status, limit, like],
+      )
       .then((r) => r.rows);
   }
 
