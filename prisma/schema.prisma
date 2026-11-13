@@ -26,6 +26,9 @@ model activity_audit_log {
   after_state    Json?
   employees      employees?     @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   legal_entities legal_entities @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id, changed_at(sort: Desc)], map: "activity_audit_log_company_changed_idx")
+  @@index([entity_id, changed_at(sort: Desc)], map: "activity_audit_log_entity_changed_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

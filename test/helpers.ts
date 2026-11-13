@@ -46,7 +46,7 @@ export function forgedToken(claims: { sub: string; role: string; company_id: str
 
 // ---------------------------------------------------------------- HTTP
 
-type Method = 'get' | 'post' | 'put';
+type Method = 'get' | 'post' | 'put' | 'patch';
 /** `actorId` = a fixture employee id: the helper logs in as them and sends Authorization: Bearer. */
 export async function api(
   method: Method, path: string, actorId?: string, body?: unknown, headers: Record<string, string> = {},

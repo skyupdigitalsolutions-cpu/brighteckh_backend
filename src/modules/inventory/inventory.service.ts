@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PgService } from '../../common/database/pg.service';
-import { ReceiptDto, ReserveDto, IssueDto, ConsumeDto, ReturnDto, SupplierReturnDto } from './dto/inventory.dto';
+import { ReceiptDto, InventoryReserveDto, IssueDto, ConsumeDto, ReturnDto, SupplierReturnDto } from './dto/inventory.dto';
 
 /**
  * Inventory ledger consumer-facing service. This is the SINGLE WRITER boundary:
@@ -77,7 +77,7 @@ export class InventoryService {
   }
 
   /** refKind distinguishes the consumer (BR-05 job vs BR-11 sales order) on the ledger row. */
-  async reserve(d: ReserveDto, idem: string, actor: string,
+  async reserve(d: InventoryReserveDto, idem: string, actor: string,
                 refKind: 'BR05_JOB_RESERVATION' | 'BR11_SALES_RESERVATION' = 'BR05_JOB_RESERVATION') {
     if (!idem) throw new BadRequestException('Idempotency-Key header required');
     try {

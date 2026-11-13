@@ -3,12 +3,20 @@ import {
   InwardEquipmentGroupsRow, InwardEquipmentUnitsRow, InwardReceiptsRow, JobAssignmentsRow, ServiceJobsRow,
 } from '../../../common/swagger/rows.generated';
 
+/** Unit row on the receipt detail, plus the Job it became (B-2). */
+export class ReceiptEquipmentUnit extends InwardEquipmentUnitsRow {
+  @ApiProperty({ type: 'string', format: 'uuid', nullable: true, description: 'service_jobs.id created when this unit was verified; null before' })
+  job_id!: string | null;
+  @ApiProperty({ type: 'string', nullable: true, description: 'service_jobs.job_number; null before verification' })
+  job_number!: string | null;
+}
+
 /** GET /inward-receipts/:id — JIN header with all groups and expanded units. */
 export class InwardReceiptDetail extends InwardReceiptsRow {
   @ApiProperty({ type: [InwardEquipmentGroupsRow], description: 'Ordered by group_number' })
   equipment_groups!: InwardEquipmentGroupsRow[];
-  @ApiProperty({ type: [InwardEquipmentUnitsRow], description: 'Ordered by group_id, unit_number' })
-  equipment_units!: InwardEquipmentUnitsRow[];
+  @ApiProperty({ type: [ReceiptEquipmentUnit], description: 'Ordered by group_id, unit_number' })
+  equipment_units!: ReceiptEquipmentUnit[];
 }
 
 /** GET /jobs/:id — service job with its current engineer assignment. */

@@ -241,7 +241,25 @@ export class Br04Service {
     if (!rfq.rows[0]) throw new NotFoundException('RFQ not found');
     if (rfq.rows[0].company_id !== actor.companyId) throw new ForbiddenException('RFQ belongs to another company');
 
-    const lines = await this.pg.query(`SELECT * FROM br04_rfq_lines WHERE rfq_id=$1 ORDER BY line_no`, [id]);
+    // C2-1: item code/name from the catalogue bridge alongside each line.
+    const lines = await this.pg.query(
+      `SELECT l.*, b.item_code, b.item_name FROM br04_rfq_lines l
+         LEFT JOIN br03_item_catalog_bridge b ON b.id = l.item_bridge_id
+        WHERE l.rfq_id=$1 ORDER BY l.line_no`, [id],
+    );
+    // C2-2: where each line came from (shortage -> stock-check line -> stock check -> material request) + the job.
+    const sources = await this.pg.query(
+      `SELECT l.id AS rfq_line_id, l.line_no, s.shortage_source_id, s.demand_quantity, sh.job_id, j.job_number,
+              sh.stock_check_line_id, cl.stock_check_id, sc.material_request_id, mr.request_number AS material_request_number
+         FROM br04_rfq_lines l
+         JOIN br04_rfq_line_sources s   ON s.rfq_line_id = l.id
+         JOIN br04_shortage_sources sh  ON sh.id = s.shortage_source_id
+         JOIN service_jobs j            ON j.id = sh.job_id
+         JOIN br04_stock_check_lines cl ON cl.id = sh.stock_check_line_id
+         JOIN br04_stock_checks sc      ON sc.id = cl.stock_check_id
+         JOIN br03_material_requests mr ON mr.id = sc.material_request_id
+        WHERE l.rfq_id=$1 ORDER BY l.line_no, s.shortage_source_id`, [id],
+    );
     const invites = await this.pg.query(`SELECT * FROM br04_rfq_supplier_invites WHERE rfq_id=$1`, [id]);
     const offers = await this.pg.query(
       `SELECT h.*, v.id AS version_id, v.version_no, v.comments
@@ -254,7 +272,12 @@ export class Br04Service {
       const l = await this.pg.query(`SELECT * FROM br04_supplier_offer_lines WHERE offer_version_id=$1`, [o.version_id]);
       return { ...o, lines: l.rows };
     }));
-    return { ...rfq.rows[0], lines: lines.rows, invites: invites.rows, offers: offersWithLines };
+    const src = sources.rows;
+    return {
+      ...rfq.rows[0], lines: lines.rows, invites: invites.rows, offers: offersWithLines,
+      job_id: src[0]?.job_id ?? null, job_number: src[0]?.job_number ?? null,
+      sources: src.map(({ job_number, ...r }) => r),
+    };
   }
 
   // ---------------------------------------------------------------- supplier invites + offers

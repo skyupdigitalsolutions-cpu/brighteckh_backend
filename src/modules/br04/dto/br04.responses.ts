@@ -18,9 +18,33 @@ export class RfqOfferWithLines extends Br04SupplierOfferHeadersRow {
   @ApiProperty({ type: [Br04SupplierOfferLinesRow] }) lines!: Br04SupplierOfferLinesRow[];
 }
 
+/** RFQ line with the catalogue-bridge item code/name (C2-1). */
+export class RfqLineWithItem extends Br04RfqLinesRow {
+  @ApiProperty({ type: 'string', nullable: true }) item_code!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) item_name!: string | null;
+}
+
+/** Where an RFQ line's demand came from (C2-2). */
+export class RfqLineSourceLink {
+  @ApiProperty({ format: 'uuid' }) rfq_line_id!: string;
+  @ApiProperty({ type: 'integer' }) line_no!: number;
+  @ApiProperty({ format: 'uuid', description: 'br04_shortage_sources.id' }) shortage_source_id!: string;
+  @ApiProperty({ type: 'string', format: 'decimal' }) demand_quantity!: string;
+  @ApiProperty({ format: 'uuid' }) job_id!: string;
+  @ApiProperty({ format: 'uuid', description: 'br04_stock_check_lines.id' }) stock_check_line_id!: string;
+  @ApiProperty({ format: 'uuid', description: 'br04_stock_checks.id' }) stock_check_id!: string;
+  @ApiProperty({ format: 'uuid', description: 'br03_material_requests.id' }) material_request_id!: string;
+  @ApiProperty() material_request_number!: string;
+}
+
 /** GET /rfqs/:id — RFQ with lines, supplier invites and every offer version (one entry per version). */
 export class RfqDetail extends Br04RfqsRow {
-  @ApiProperty({ type: [Br04RfqLinesRow], description: 'Ordered by line_no' }) lines!: Br04RfqLinesRow[];
+  @ApiProperty({ type: [RfqLineWithItem], description: 'Ordered by line_no' }) lines!: RfqLineWithItem[];
+  @ApiProperty({ type: 'string', format: 'uuid', nullable: true, description: 'The job the RFQ was raised from (RFQs are per job)' })
+  job_id!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) job_number!: string | null;
+  @ApiProperty({ type: [RfqLineSourceLink], description: 'Shortage -> stock-check line -> stock check -> material request, per line' })
+  sources!: RfqLineSourceLink[];
   @ApiProperty({ type: [Br04RfqSupplierInvitesRow] }) invites!: Br04RfqSupplierInvitesRow[];
   @ApiProperty({ type: [RfqOfferWithLines] }) offers!: RfqOfferWithLines[];
 }

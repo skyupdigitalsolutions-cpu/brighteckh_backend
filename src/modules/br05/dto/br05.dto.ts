@@ -1,6 +1,6 @@
 import { IsIn, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Min } from 'class-validator';
 
-export class QuoteResponseDto {
+export class RepairQuoteResponseDto {
   @IsUUID() br04_quote_revision_id!: string;
   @IsIn(['AWAITING_RESPONSE', 'ACCEPTED', 'COUNTER_OFFER', 'TECHNICAL_QUERY', 'PARTIAL_ACCEPTANCE', 'ON_HOLD', 'REJECTED', 'EXPIRED'])
   response_type!: string;

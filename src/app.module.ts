@@ -18,6 +18,7 @@ import { Br11Module } from './modules/br11/br11.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { PurchaseDeskModule } from './modules/purchase-desk/purchase-desk.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     Br11Module,
     DashboardModule,
     UploadsModule,
+    PurchaseDeskModule,
   ],
   controllers: [HealthController],
 })

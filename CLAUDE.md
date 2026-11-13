@@ -504,6 +504,55 @@ existing routes behave as before (two gained optional data: `search` param, `rev
    Purchase, Purchase creates + approves it in the Item Master, and it syncs. The UI shows an empty-catalogue note
    ("Part not listed? Ask Purchase to add it to the Item Master.").
 
+**Purchase desk reads — migration 024, src/modules/purchase-desk (13 Nov 2026):** additive read endpoints for the
+Purchase UI (G14–G22, B-1..B-3, C1-1, C2-1/2). Tests: `test/purchase-reads.e2e-spec.ts`. 024 only adds 3 indexes on
+`activity_audit_log` (it had none; the overview and job last-activity read it). All company-scoped from the token.
+- Every list/lookup is paginated: `?page=1&page_size=25` (max 100) + `search` → `{ rows, total, page, page_size }`.
+  Enum filters take comma-separated DB values (`status=REGISTERED,VERIFYING`). Unknown params are 400.
+- `GET /inward-receipts` (PURCHASE, MANAGEMENT): status, priority, `month=YYYY-MM` (receipt_at, company tz), search
+  (JIN, customer, DC no.). Rows add customer_name/code, groups_count, units_received (Σ group qty), units_total, units_verified.
+- `GET /jobs` (PURCHASE, MANAGEMENT): status, priority, `engineer_id=<uuid>|unassigned`, search (job, JIN, serial,
+  make, model, assembly, customer). Rows add JIN, unit n of m, equipment, customer, current engineer id/name, response,
+  `last_activity_at` = latest of job/assignment timestamps and audit rows whose entity_id or top-level after_state.job_id is the job.
+- `GET /rfqs` (PURCHASE only, like `/rfqs/:id`): status, job_id, search; job_id/job_number + lines/invites/offers counts, no prices.
+  `GET /rfqs/:id` gained `job_id`, `job_number`, `sources[]` (shortage → stock-check line → stock check → MR) and
+  `item_code`/`item_name` on lines.
+- `GET /quotes` (PURCHASE, MANAGEMENT): status (matched on the LATEST revision), job_id, search; latest revision status +
+  revised_pre_tax/tax/freight. No reference/procurement offer ids.
+- `GET /lookups/customers` (PURCHASE, SALES; default status PENDING_APPROVAL,APPROVED; no contact/GST fields),
+  `/lookups/engineers` (PURCHASE; active ENGINEERs + open_jobs/pending_custody), `/lookups/employees?role=` (PURCHASE;
+  active), `/lookups/assemblies` (PURCHASE; the shared `assemblies` table, not fdn_assembly_master),
+  `/lookups/custody-locations` (PURCHASE; active), `/lookups/item-bridge` (PURCHASE; ids or search required). All take `ids=`.
+- `GET /equipment-units/:id/photos` (any role in the company, like the receipt detail). `GET /inward-receipts/:id` units
+  gained `job_id`/`job_number` (null before verification).
+- `PATCH /equipment-units/:id` (PURCHASE): serial_number, observed_make/model, reported_fault, physical_condition,
+  accessories; only while verification_status is PENDING/ON_HOLD; audit `BR02_UNIT_DETAILS_UPDATED` (changed fields only).
+- `GET /jobs/:id/progress` (PURCHASE, MANAGEMENT): 10 derived stages (ASSIGNED, CUSTODY, INSPECTION, REPORT_REVIEW, MATERIAL,
+  QUOTE, AUTHORISATION, PO_GRN, REPAIR_TEST, DISPATCH_INVOICE), each with status done/current/pending/blocked, `at`,
+  `source` and its exact `rule` (also in job-progress.service.ts), plus every job_assignments row with names.
+  Current = first not-done stage after the last done one; blocked = that stage while the job is ON_HOLD/CANCELLED, or
+  REPAIR_TEST after a BR-07 STOP. QUOTE "sent" comes from the BR04_QUOTE_SENT audit row (revisions have no sent_at).
+- `GET /overview/purchase` (PURCHASE, MANAGEMENT; read-only tx; "today"/week in the active calendar's timezone, default
+  Asia/Kolkata): verify_units {awaiting = PENDING units, receipts_with_pending_units, verified_today}; assign_engineers
+  {unassigned = open jobs with no current assignment, assigned_today = assignment rows incl. reassignments};
+  review_reports {awaiting_review = SUBMITTED, returned = RETURNED, reviewed_today = ACCEPT/RETURN reviews};
+  jobs_by_status (open statuses, zeros included); engineer_workload (active engineers, max 50) + engineers_total;
+  intake_this_week Mon–Sat {units_received = Σ group qty of JINs received that day, units_verified}; latest_activity
+  (10 audit rows, actor name, no before/after state). Raw counts only — no targets/denominators.
+- OpenAPI name collisions fixed (schemas are keyed by class name; runtime unchanged): BR-04 `QuoteLineDto` →
+  `RepairQuoteLineDto`, BR-05 `QuoteResponseDto` → `RepairQuoteResponseDto`, inventory `ReserveDto` →
+  `InventoryReserveDto`, BR-09 `AuthorityStatus` → `SupportAuthorityStatus` (BR-10/11 keep the old names).
+
+**OPEN DECISIONS (Purchase desk reads, flagged, not resolved):**
+1. Unit details editable only before verification (PENDING/ON_HOLD); after a Job ID exists there is no correction path.
+2. List roles kept no wider than the matching detail reads: register/jobs/quotes = PURCHASE + MANAGEMENT, RFQs = PURCHASE.
+   Sales has no quote list (may need one scoped to quotes released to them); job progress excludes ENGINEER/SALES.
+3. `inward_receipts.receipt_status` is never advanced by any API (always REGISTERED); the register shows it as stored.
+4. Job progress has no "skipped" state: a stage with no record (e.g. no supplier PO because stock covered it, or
+   no material for NO_FAULT_FOUND) shows `pending`. PO_GRN done needs every non-cancelled job PO to have a GRN.
+5. Overview intake week is fixed Mon–Sat (client calendar); Sunday receipts are not shown.
+6. Not built: G23 notifications, G24 global search, RFQ history/cancel/COMPARED (C2-3..5).
+
 ## 4e. Working calendar — migration 012, src/modules/calendar
 
 Client-confirmed: both companies Mon–Sat; Mon–Fri 09:30–18:30, Sat 09:30–16:00; lunch

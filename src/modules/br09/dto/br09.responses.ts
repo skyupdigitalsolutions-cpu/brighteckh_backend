@@ -48,7 +48,7 @@ export class SupportAnalytics {
   @ApiProperty({ type: 'array', items: { type: 'object' } }) sla!: unknown[];
 }
 
-export class AuthorityStatus {
+export class SupportAuthorityStatus {
   @ApiProperty({ enum: ['CLAIM_DECISION', 'GOODWILL_APPROVAL'] }) decision_kind!: string;
   @ApiProperty({ type: 'string', nullable: true }) approver_role_code!: string | null;
   @ApiProperty({ example: 'CLIENT-UNCONFIRMED (decisions blocked)' }) status!: string;
@@ -57,6 +57,6 @@ export class AuthorityStatus {
 }
 
 export class Br09Config {
-  @ApiProperty({ type: [AuthorityStatus] }) authorities!: AuthorityStatus[];
+  @ApiProperty({ type: [SupportAuthorityStatus] }) authorities!: SupportAuthorityStatus[];
   @ApiProperty({ type: [Br09SlaTargetsRow] }) sla_targets!: Br09SlaTargetsRow[];
 }

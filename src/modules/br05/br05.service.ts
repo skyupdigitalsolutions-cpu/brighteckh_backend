@@ -3,7 +3,7 @@ import { PoolClient } from 'pg';
 import { PgService } from '../../common/database/pg.service';
 import { InventoryService } from '../inventory/inventory.service';
 import {
-  AuthoriseJobDto, CreateOrderAllocationDto, CustomerAuthorityDto, QuoteResponseDto, ReleaseJobDto,
+  AuthoriseJobDto, CreateOrderAllocationDto, CustomerAuthorityDto, RepairQuoteResponseDto, ReleaseJobDto,
   ReserveMaterialDto, StockRecheckDto, VerifyCustomerAuthorityDto,
 } from './dto/br05.dto';
 
@@ -51,7 +51,7 @@ export class Br05Service {
 
   // ---------------------------------------------------------------- customer quote response
 
-  async recordQuoteResponse(jobId: string, dto: QuoteResponseDto, actor: Actor) {
+  async recordQuoteResponse(jobId: string, dto: RepairQuoteResponseDto, actor: Actor) {
     try {
       return await this.pg.tx(async (client) => {
         await this.loadJob(client, jobId, actor);

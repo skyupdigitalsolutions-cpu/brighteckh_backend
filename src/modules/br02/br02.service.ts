@@ -84,8 +84,11 @@ export class Br02Service {
     const groups = await this.pg.query(
       `SELECT * FROM inward_equipment_groups WHERE inward_id=$1 ORDER BY group_number`, [id],
     );
+    // B-2: each unit also carries the Job it became (null until verified). One Job per unit (unit_id UNIQUE).
     const units = await this.pg.query(
-      `SELECT * FROM inward_equipment_units WHERE inward_id=$1 ORDER BY group_id, unit_number`, [id],
+      `SELECT u.*, j.id AS job_id, j.job_number
+         FROM inward_equipment_units u LEFT JOIN service_jobs j ON j.unit_id = u.id
+        WHERE u.inward_id=$1 ORDER BY u.group_id, u.unit_number`, [id],
     );
     return { ...receipt, equipment_groups: groups.rows, equipment_units: units.rows };
   }

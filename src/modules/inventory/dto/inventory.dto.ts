@@ -10,7 +10,7 @@ class Base {
 // RECEIPT: supplier goods accepted into a store (to_location). BR-06 GRN line.
 export class ReceiptDto extends Base { @IsUUID() to_location_id!: string; }
 // RESERVE: BR-05 job reservation (no physical move).
-export class ReserveDto extends Base { @IsOptional() @IsString() expires_at?: string; }
+export class InventoryReserveDto extends Base { @IsOptional() @IsString() expires_at?: string; }
 // ISSUE: main store -> engineer custody. BR-07.
 export class IssueDto extends Base { @IsUUID() from_location_id!: string; @IsUUID() to_location_id!: string; }
 // CONSUME: engineer custody -> consumed (terminal). BR-07.

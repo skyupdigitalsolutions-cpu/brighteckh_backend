@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, Post, Query, BadRequestException } from '@nestjs/common';
 import { ApiCreatedResponse, ApiForbiddenResponse, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { InventoryService } from './inventory.service';
-import { ReceiptDto, ReserveDto, IssueDto, ConsumeDto, ReturnDto, SupplierReturnDto } from './dto/inventory.dto';
+import { ReceiptDto, InventoryReserveDto, IssueDto, ConsumeDto, ReturnDto, SupplierReturnDto } from './dto/inventory.dto';
 import {
   InventoryAvailabilityResponse, InventoryPostingResponse, InventoryReservationResponse,
 } from './dto/inventory.responses';
@@ -36,7 +36,7 @@ export class InventoryController {
   @ApiCreatedResponse({ type: InventoryReservationResponse })
   @Post('reservations')
   @ApiIdempotencyKey()
-  reserve(@Body() d: ReserveDto, @Headers('idempotency-key') k: string, @CurrentActor() actor: AuthUser) {
+  reserve(@Body() d: InventoryReserveDto, @Headers('idempotency-key') k: string, @CurrentActor() actor: AuthUser) {
     return this.svc.reserve(d, k, actor.id);
   }
   @Post('issues')

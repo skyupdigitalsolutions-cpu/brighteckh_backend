@@ -10,7 +10,7 @@ import {
 import { ApiAuth, ApiStdErrors } from '../../common/swagger/api-docs';
 import { Br05Service } from './br05.service';
 import {
-  AuthoriseJobDto, CreateOrderAllocationDto, CustomerAuthorityDto, QuoteResponseDto, ReleaseJobDto,
+  AuthoriseJobDto, CreateOrderAllocationDto, CustomerAuthorityDto, RepairQuoteResponseDto, ReleaseJobDto,
   ReserveMaterialDto, StockRecheckDto, VerifyCustomerAuthorityDto,
 } from './dto/br05.dto';
 import { RolesGuard } from '../../common/auth/roles.guard';
@@ -33,7 +33,7 @@ export class Br05Controller {
   @ApiCreatedResponse({ type: QuoteResponseRecorded })
   @Post('jobs/:id/quote-responses')
   @Roles(Role.SALES)
-  recordQuoteResponse(@Param('id', ParseUUIDPipe) id: string, @Body() dto: QuoteResponseDto, @CurrentActor() actor: Actor) {
+  recordQuoteResponse(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RepairQuoteResponseDto, @CurrentActor() actor: Actor) {
     return this.svc.recordQuoteResponse(id, dto, actor);
   }
 

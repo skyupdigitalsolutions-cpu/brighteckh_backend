@@ -62,7 +62,7 @@ export class MarkOfferValidityDto {
   @IsOptional() @IsString() reason?: string;
 }
 
-class QuoteLineDto {
+export class RepairQuoteLineDto {
   @IsIn(['REPAIR_SERVICE', 'MATERIAL', 'LABOUR', 'INSPECTION', 'TESTING', 'EXTERNAL', 'FREIGHT', 'OTHER'])
   line_type!: string;
   @IsString() line_description!: string;
@@ -84,7 +84,7 @@ export class CreateQuoteDto {
   @IsOptional() @IsString() terms_snapshot?: string;
   @IsOptional() @IsNumber() @Min(0) inspection_fee_pre_tax?: number;
   @IsOptional() @IsString() inspection_fee_agreement_ref?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => QuoteLineDto) lines!: QuoteLineDto[];
+  @IsArray() @ValidateNested({ each: true }) @Type(() => RepairQuoteLineDto) lines!: RepairQuoteLineDto[];
 }
 
 export class ReviseQuoteDto {
@@ -103,7 +103,7 @@ export class ReviseQuoteDto {
   // The API never fills these in on the caller's behalf.
   @IsOptional() @IsUUID() higher_discount_approved_by_id?: string;
   @IsOptional() @IsString() higher_discount_reason?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => QuoteLineDto) lines!: QuoteLineDto[];
+  @IsArray() @ValidateNested({ each: true }) @Type(() => RepairQuoteLineDto) lines!: RepairQuoteLineDto[];
 }
 
 export class ReleaseToSalesDto {
