@@ -35,7 +35,8 @@ if (!PASSWORD) { console.error('DEMO_LOGIN_PASSWORD is not set'); process.exit(1
 async function call(method, path, token, body) {
   const res = await fetch(`${API}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    // No JSON content-type on a body-less POST: Fastify rejects an empty body declared as JSON (same as seed-demo-purchase).
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
