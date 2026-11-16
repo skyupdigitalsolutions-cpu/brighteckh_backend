@@ -30,6 +30,11 @@ export class Br05Controller {
 
   // customer quote response
 
+  @ApiOperation({
+    summary: 'Record a customer response to a sent quote revision',
+    description: '`br04_quote_revision_id` must be the LATEST revision of its quote, that revision must be SENT, and the '
+      + 'caller must be the Sales employee it was released to. 400 for not-latest / not-sent, 403 for another Sales employee.',
+  })
   @ApiCreatedResponse({ type: QuoteResponseRecorded })
   @Post('jobs/:id/quote-responses')
   @Roles(Role.SALES)

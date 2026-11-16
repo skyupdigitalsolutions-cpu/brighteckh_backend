@@ -56,15 +56,38 @@ export class Br05Service {
       return await this.pg.tx(async (client) => {
         await this.loadJob(client, jobId, actor);
 
-        const quoteRev = await client.query<{ company_id: string; job_id: string }>(
-          `SELECT q.company_id, q.job_id FROM br04_customer_quote_revisions r
-             JOIN br04_customer_quotes q ON q.id=r.quote_id WHERE r.id=$1`,
+        // The quote row is locked so a concurrent revise/release cannot change "latest" or its status mid-check.
+        const quoteRev = await client.query<{
+          company_id: string; job_id: string; quote_id: string; revision_no: number; quote_status: string;
+        }>(
+          `SELECT q.company_id, q.job_id, q.id AS quote_id, r.revision_no, r.quote_status
+             FROM br04_customer_quote_revisions r
+             JOIN br04_customer_quotes q ON q.id=r.quote_id WHERE r.id=$1 FOR UPDATE OF q`,
           [dto.br04_quote_revision_id],
         );
-        if (!quoteRev.rows[0]) throw new BadRequestException('BR-04 quote revision not found');
-        if (quoteRev.rows[0].company_id !== actor.companyId || quoteRev.rows[0].job_id !== jobId) {
+        const rev = quoteRev.rows[0];
+        if (!rev) throw new BadRequestException('BR-04 quote revision not found');
+        if (rev.company_id !== actor.companyId || rev.job_id !== jobId) {
           throw new BadRequestException('quote revision does not belong to this job/company');
         }
+
+        // Server-side guards (16 Nov 2026, approved by the product owner): a customer response can only be recorded
+        // against the LATEST revision of the quote, only once that revision has been SENT to the customer, and only by
+        // the Sales employee it was released to (same rule as POST /quotes/:id/send).
+        const latest = await client.query<{ max: number }>(
+          `SELECT MAX(revision_no) AS max FROM br04_customer_quote_revisions WHERE quote_id=$1`, [rev.quote_id],
+        );
+        if (rev.revision_no !== Number(latest.rows[0].max)) {
+          throw new BadRequestException('responses can only be recorded against the latest revision of the quote');
+        }
+        if (rev.quote_status !== 'SENT') {
+          throw new BadRequestException(`quote revision has not been sent to the customer (status ${rev.quote_status})`);
+        }
+        const handoff = await client.query(
+          `SELECT 1 FROM br04_quote_sales_handoffs WHERE quote_revision_id=$1 AND assigned_sales_id=$2`,
+          [dto.br04_quote_revision_id, actor.id],
+        );
+        if (!handoff.rows[0]) throw new ForbiddenException('quote was not released to this Sales employee');
 
         let bridge = await client.query<{ id: string }>(
           `SELECT id FROM br05_quote_revision_refs WHERE company_id=$1 AND job_id=$2 AND source_br04_quote_id=$3`,

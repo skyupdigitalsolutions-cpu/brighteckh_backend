@@ -546,7 +546,7 @@ Purchase UI (G14–G22, B-1..B-3, C1-1, C2-1/2). Tests: `test/purchase-reads.e2e
 **OPEN DECISIONS (Purchase desk reads, flagged, not resolved):**
 1. Unit details editable only before verification (PENDING/ON_HOLD); after a Job ID exists there is no correction path.
 2. List roles kept no wider than the matching detail reads: register/jobs/quotes = PURCHASE + MANAGEMENT, RFQs = PURCHASE.
-   Sales has no quote list (may need one scoped to quotes released to them); job progress excludes ENGINEER/SALES.
+   Sales has no access to `GET /quotes` (its own worklist is `GET /sales/quotes`, below); job progress excludes ENGINEER/SALES.
 3. `inward_receipts.receipt_status` is never advanced by any API (always REGISTERED); the register shows it as stored.
 4. Job progress has no "skipped" state: a stage with no record (e.g. no supplier PO because stock covered it, or
    no material for NO_FAULT_FOUND) shows `pending`. PO_GRN done needs every non-cancelled job PO to have a GRN.
@@ -571,6 +571,38 @@ Purchase UI (G14–G22, B-1..B-3, C1-1, C2-1/2). Tests: `test/purchase-reads.e2e
   Partial receipts leave the status unchanged. A RECEIVED PO takes no further GRN (createGrn already required
   ACKNOWLEDGED/SHIPPED). `CLOSED` is still never set (no rule). Migration 025 applies the rule once to POs that were
   already fully posted (audit `BR06_PO_RECEIVED_BACKFILL`, actor NULL); idempotent, no schema change.
+
+**Sales desk reads (16 Nov 2026, no migration):** `src/modules/purchase-desk/sales-quotes.*`. Tests:
+`test/sales-quotes.e2e-spec.ts`.
+- `GET /sales/quotes` (SALES only): quotes of the token's company whose LATEST revision has a `br04_quote_sales_handoffs`
+  row with `assigned_sales_id` = caller (latest status RELEASED_TO_SALES/SENT/ACCEPTED/REJECTED/EXPIRED). A quote Purchase
+  re-revised to DRAFT drops out until released again. Purchase-desk conventions (`page`/`page_size` <= 100, unknown params 400)
+  + `stage` (comma-separated), `valid_until_before=YYYY-MM-DD` (strict `<`; null valid_until excluded), `search` (quote no.,
+  job no., customer name/code, serial, make, model). Response adds `counts_by_stage` (all 6 stages; scope + `search` only,
+  ignores `stage`/`valid_until_before`). Order: TO_SEND first by `released_to_sales_at` asc, then GREATEST(`sent_at`,
+  latest `responded_at`) desc, then `quote_number`. Rows: quote/job/customer/equipment (`assembly_name` from `assemblies`),
+  latest revision id/no/status/`valid_until` (YYYY-MM-DD)/`revised_pre_tax`/`tax_total`/`freight_charge`, handoff (+ releaser
+  name), sent fields, `latest_response` {response_id, response_type, response_channel, customer_contact, responded_at,
+  recorded_by_id, recorded_by_name} = newest `br05_customer_response_events` row whose ref's `source_br04_quote_id` is the
+  latest revision. Never offer/estimate/cost ids or supplier prices.
+- `sales_stage` (derived, not stored): BR-04 `RELEASED_TO_SALES` -> TO_SEND; `SENT` + no response or latest `AWAITING_RESPONSE`
+  -> AWAITING; `SENT` + latest `ACCEPTED`/`REJECTED`/`EXPIRED` -> same name; `SENT` + latest `COUNTER_OFFER`/`TECHNICAL_QUERY`/
+  `PARTIAL_ACCEPTANCE`/`ON_HOLD` (anything else) -> IN_DISCUSSION. BR-04 `ACCEPTED`/`REJECTED`/`EXPIRED` -> same name (BR-04
+  wins over responses) -- defensive only: no API sets them and `brcm_guard_quote_revision` refuses any UPDATE of a SENT revision.
+  DRAFT / SUPERSEDED latest revisions are out of scope.
+- `GET /quotes/:id` revisions add `sent_at`, `sent_by_id`, `sent_by_name` from the `BR04_QUOTE_SENT` `activity_audit_log` row
+  (entity_table `br04_customer_quote_revisions`, entity_id = revision id, written by sendQuote); null until sent.
+
+**OPEN DECISIONS (Sales desk reads, flagged, not resolved):**
+1. Not built: a responses-feed endpoint (G-S3), a Sales overview/activity endpoint (G-S4), send recipients/email (send has no body).
+2. ~~`POST /jobs/:id/quote-responses` is not hardened server-side~~ — RESOLVED 16 Nov 2026 (product owner approved):
+   the revision must be the LATEST of its quote (400), must be `SENT` (400, message names the status), and the caller must
+   be the Sales employee it was released to (`br04_quote_sales_handoffs.assigned_sales_id`, 403 — same rule as send). The
+   quote row is locked during the check. Consequence: BR-05's "never released" authorisation guard is now unreachable
+   through the API (no response, so no ref/allocation, can exist for an unsent revision); it stays as defence in depth.
+   Tests: `test/sales-quotes.e2e-spec.ts` (guards) + `test/flow.e2e-spec.ts` (BR-05, reordered to record after send).
+3. No auto-expiry on `valid_until`; a recorded response never moves BR-04 `quote_status` (stage is derived at read time).
+4. Sales sees only quotes assigned to them, never colleagues' (MANAGEMENT keeps `GET /quotes`).
 
 ## 4e. Working calendar — migration 012, src/modules/calendar
 

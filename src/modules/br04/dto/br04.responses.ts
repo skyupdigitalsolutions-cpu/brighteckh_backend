@@ -61,6 +61,15 @@ export class QuoteRevisionWithLines extends Br04CustomerQuoteRevisionsRow {
   released_to_sales_by_id!: string | null;
   @ApiProperty({ type: String, format: 'date-time', nullable: true, description: 'br04_quote_sales_handoffs.released_at' })
   released_to_sales_at!: string | null;
+  @ApiProperty({
+    type: String, format: 'date-time', nullable: true,
+    description: 'changed_at of the BR04_QUOTE_SENT activity_audit_log row for this revision (entity_id = revision id); null until sent',
+  })
+  sent_at!: string | null;
+  @ApiProperty({ type: String, format: 'uuid', nullable: true, description: 'actor_id of that BR04_QUOTE_SENT audit row (the Sales employee who sent it)' })
+  sent_by_id!: string | null;
+  @ApiProperty({ type: String, nullable: true, description: 'employees.full_name of sent_by_id' })
+  sent_by_name!: string | null;
 }
 
 /** GET /quotes/:id — customer quote with every revision and its lines. */

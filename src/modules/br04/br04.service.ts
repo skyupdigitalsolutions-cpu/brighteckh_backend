@@ -655,11 +655,19 @@ export class Br04Service {
 
     const revisions = await this.pg.query(
       // + the revision's Sales handoff (one per revision, UNIQUE(quote_revision_id)); null until released.
+      // + the BR04_QUOTE_SENT audit row written by sendQuote (entity_id = revision id); null until sent.
       `SELECT r.*, h.assigned_sales_id, h.released_by_purchase_id AS released_to_sales_by_id,
-              h.released_at AS released_to_sales_at
+              h.released_at AS released_to_sales_at,
+              s.changed_at AS sent_at, s.actor_id AS sent_by_id, se.full_name AS sent_by_name
          FROM br04_customer_quote_revisions r
          LEFT JOIN br04_quote_sales_handoffs h ON h.quote_revision_id = r.id
-        WHERE r.quote_id=$1 ORDER BY r.revision_no`, [id],
+         LEFT JOIN LATERAL (
+           SELECT l.changed_at, l.actor_id FROM activity_audit_log l
+            WHERE l.entity_id = r.id AND l.company_id = $2 AND l.action = 'BR04_QUOTE_SENT'
+              AND l.entity_table = 'br04_customer_quote_revisions'
+            ORDER BY l.changed_at DESC, l.id DESC LIMIT 1) s ON true
+         LEFT JOIN employees se ON se.id = s.actor_id
+        WHERE r.quote_id=$1 ORDER BY r.revision_no`, [id, actor.companyId],
     );
     const withLines = await Promise.all(revisions.rows.map(async (rev) => {
       const lines = await this.pg.query(

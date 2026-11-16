@@ -5,10 +5,12 @@ import {
 import { PurchaseDeskService } from './purchase-desk.service';
 import { JobProgressService } from './job-progress.service';
 import { PurchaseOverviewService } from './purchase-overview.service';
+import { SalesDeskController } from './sales-quotes.controller';
+import { SalesQuotesService } from './sales-quotes.service';
 
-/** Read endpoints (+ the unit-detail edit) for the Purchase desktop UI. See CLAUDE.md §4i. */
+/** Read endpoints (+ the unit-detail edit) for the Purchase desktop UI, plus the Sales quote worklist. See CLAUDE.md §4i. */
 @Module({
-  controllers: [PurchaseDeskBr02Controller, PurchaseDeskBr04Controller, LookupsController, PurchaseOverviewController],
-  providers: [PurchaseDeskService, JobProgressService, PurchaseOverviewService],
+  controllers: [PurchaseDeskBr02Controller, PurchaseDeskBr04Controller, LookupsController, PurchaseOverviewController, SalesDeskController],
+  providers: [PurchaseDeskService, JobProgressService, PurchaseOverviewService, SalesQuotesService],
 })
 export class PurchaseDeskModule {}

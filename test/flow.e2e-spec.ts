@@ -266,7 +266,20 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       ok(await api('post', `/customer-authority/${s.order}/verify`, P(), {}));
     });
 
-    it('cannot authorise against a quote that was never sent', async () => {
+    // Since the 16 Nov 2026 server-side guard, a customer response (and so an allocation + authorisation) cannot exist
+    // for a revision that was never sent: the API rejects the response itself, before any BR-05 ref is created.
+    it('cannot record a customer response (so cannot authorise) against a quote that was never sent', async () => {
+      fails(await api('post', `/jobs/${s.job}/quote-responses`, f.sales, {
+        br04_quote_revision_id: s.quoteRevision, response_type: 'ACCEPTED', response_channel: 'EMAIL',
+      }), 400, /not been sent/);
+      expect(ok(await api('get', `/jobs/${s.job}/quote-responses`, f.sales))).toHaveLength(0);
+      expect(ok(await api('get', `/jobs/${s.job}/authorisations`, P()))).toHaveLength(0);
+    });
+
+    it('after release-to-sales + send, the email authority authorises the job', async () => {
+      fails(await api('post', `/quotes/${s.quote}/send`, f.sales), 400, /released to Sales/);
+      ok(await api('post', `/quotes/${s.quote}/release-to-sales`, P(), { assigned_sales_id: f.sales }));
+      ok(await api('post', `/quotes/${s.quote}/send`, f.sales));
       const resp = ok(await api('post', `/jobs/${s.job}/quote-responses`, f.sales, {
         br04_quote_revision_id: s.quoteRevision, response_type: 'ACCEPTED', response_channel: 'EMAIL',
       }));
@@ -276,10 +289,8 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       }));
       s.alloc = alloc.id;
       ok(await api('post', `/order-allocations/${s.alloc}/verify`, P()));
-
-      fails(await api('post', `/jobs/${s.job}/authorisations`, P(), { order_job_allocation_id: s.alloc }),
-        400, /never released/);
-      expect(ok(await api('get', `/jobs/${s.job}/authorisations`, P()))).toHaveLength(0);
+      const a = ok(await api('post', `/jobs/${s.job}/authorisations`, P(), { order_job_allocation_id: s.alloc }));
+      expect(a.authorisation_kind).toBe('EMAIL_AUTHORISATION');
     });
 
     it('quote-response + allocation reads name the BR-04 revision behind the BR-05 ref', async () => {
@@ -294,14 +305,6 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       expect(resp).toMatchObject(expected);
       const alloc = ok(await api('get', `/jobs/${s.job}/order-allocations`, P())).find((a: any) => a.id === s.alloc);
       expect(alloc).toMatchObject({ ...expected, accepted_quote_revision_id: s.quoteRef });
-    });
-
-    it('after release-to-sales + send, the email authority authorises the job', async () => {
-      fails(await api('post', `/quotes/${s.quote}/send`, f.sales), 400, /released to Sales/);
-      ok(await api('post', `/quotes/${s.quote}/release-to-sales`, P(), { assigned_sales_id: f.sales }));
-      ok(await api('post', `/quotes/${s.quote}/send`, f.sales));
-      const a = ok(await api('post', `/jobs/${s.job}/authorisations`, P(), { order_job_allocation_id: s.alloc }));
-      expect(a.authorisation_kind).toBe('EMAIL_AUTHORISATION');
     });
 
     it('quote detail shows the Sales person each revision was released to (null before release)', async () => {
