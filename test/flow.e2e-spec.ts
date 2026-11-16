@@ -1,7 +1,7 @@
 import { Client } from 'pg';
 import request from 'supertest';
 import {
-  api, balances, BASE, bridge, createItem, db, dbRejects, Fixtures, fails, forgedToken, ok, otherCompany, RUN, setupFixtures, tokenFor,
+  api, balances, BASE, bridge, createItem, db, dbRejects, employeeIn, Fixtures, fails, forgedToken, ok, otherCompany, RUN, setupFixtures, tokenFor,
 } from './helpers';
 
 /**
@@ -336,11 +336,71 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
         lines: [{ po_line_id: po.lines[0].id, received_quantity: 10 }],
       }));
       s.grnLine = grn.lines[0].id;
+      s.grn = grn.id;
       s.po = po.id;
       s.poLine = po.lines[0].id;
       s.poOrdered = Number(po.lines[0].quantity);
       // A GRN that is only counted (not yet posted) does not move the PO.
       expect(ok(await api('get', `/purchase-orders/${po.id}`, P())).po_status).toBe('ACKNOWLEDGED');
+    });
+
+    // Stores desk reads (CLAUDE.md §4i "Stores desk reads"): what the Stores screens need, quantities only.
+    const PRICE_RE = /unit_price|currency_code|payment_terms/;
+    it('Stores desk: the PO is on the receivable list with its acknowledgement; PO lines carry item + qty, never price', async () => {
+      const poNumber = ok(await api('get', `/purchase-orders/${s.po}`, P())).po_number;
+      const page = ok(await api('get', `/stores/receivable-pos?search=${encodeURIComponent(poNumber)}`, f.stores));
+      expect(page.total).toBe(1);
+      expect(page.counts_by_status).toEqual({ RELEASED: 0, ACKNOWLEDGED: 1, SHIPPED: 0 });
+      const row = page.rows[0];
+      expect(row).toMatchObject({
+        po_id: s.po, po_number: poNumber, po_status: 'ACKNOWLEDGED', purchase_purpose: 'CUSTOMER_JOB', job_id: s.job,
+        can_receive: true, lines_total: 1, lines_outstanding: s.poOrdered > 10 ? 1 : 0, open_grns: 1, latest_shipment: null,
+      });
+      expect(row.acknowledgement).toMatchObject({ supplier_reference: `SO-${RUN}` });
+      expect(row.job_number).toBeTruthy();
+      expect(JSON.stringify(page)).not.toMatch(PRICE_RE);
+      expect(ok(await api('get', `/stores/receivable-pos?status=SHIPPED&search=${encodeURIComponent(poNumber)}`, f.stores)).total).toBe(0);
+
+      const po = ok(await api('get', `/stores/purchase-orders/${s.po}`, f.stores));
+      expect(JSON.stringify(po)).not.toMatch(PRICE_RE);
+      expect(po.lines).toHaveLength(1);
+      expect(po.lines[0]).toMatchObject({ po_line_id: s.poLine, line_no: 1, uom: expect.any(String) });
+      expect(po.lines[0].item_code).toBeTruthy();
+      expect(po.lines[0].item_name).toBeTruthy();
+      expect(Number(po.lines[0].received_quantity)).toBe(10);
+      expect(Number(po.lines[0].posted_quantity)).toBe(0);
+      expect(Number(po.lines[0].outstanding_quantity)).toBe(Math.max(s.poOrdered - 10, 0));
+      expect(po.grns).toHaveLength(1);
+      expect(po.grns[0]).toMatchObject({ grn_id: s.grn, lines_total: 1, lines_posted: 0, grn_status: 'OPEN' });
+    });
+
+    it('Stores desk: the GRN register + detail show the new GRN OPEN with no photos yet', async () => {
+      const grn = ok(await api('get', `/stores/grns/${s.grn}`, f.stores));
+      expect(grn).toMatchObject({ grn_id: s.grn, po_id: s.po, grn_status: 'OPEN', lines_total: 1, lines_posted: 0, received_by_id: f.stores });
+      expect(grn.received_by_name).toBeTruthy();
+      expect(grn.lines[0]).toMatchObject({
+        id: s.grnLine, po_line_id: s.poLine, line_no: 1, posted_at: null, posted_by_id: null, media: [], movements: [],
+      });
+      expect(Number(grn.lines[0].received_quantity)).toBe(10);
+      const list = ok(await api('get', `/stores/grns?search=${encodeURIComponent(grn.grn_number)}`, f.stores));
+      expect(list.rows.map((r: any) => r.grn_id)).toEqual([s.grn]);
+      expect(list.counts_by_status).toEqual({ OPEN: 1, PARTIAL: 0, POSTED: 0 });
+      expect(ok(await api('get', `/stores/grns?status=POSTED&search=${encodeURIComponent(grn.grn_number)}`, f.stores)).total).toBe(0);
+    });
+
+    it('Stores desk: STORES_QUALITY only, company-scoped, ids + filters validated', async () => {
+      for (const path of ['/stores/receivable-pos', `/stores/purchase-orders/${s.po}`, '/stores/grns', `/stores/grns/${s.grn}`]) {
+        fails(await api('get', path, P()), 403);
+        fails(await api('get', path, f.sales), 403);
+      }
+      const foreignStores = await employeeIn(c, await otherCompany(c), 'PUR', 'STORES_QUALITY', 'STX');
+      fails(await api('get', `/stores/purchase-orders/${s.po}`, foreignStores), 403);
+      fails(await api('get', `/stores/grns/${s.grn}`, foreignStores), 403);
+      expect(JSON.stringify(ok(await api('get', '/stores/grns?page_size=100', foreignStores)))).not.toContain(s.grn);
+      fails(await api('get', '/stores/grns/not-a-uuid', f.stores), 400);
+      fails(await api('get', '/stores/grns/00000000-0000-4000-8000-000000000000', f.stores), 404);
+      fails(await api('get', '/stores/grns?status=CLOSED', f.stores), 400);
+      fails(await api('get', '/stores/receivable-pos?status=RECEIVED', f.stores), 400);
     });
 
     it('photo-per-line gate: cannot post a GRN line without a photo', async () => {
@@ -357,6 +417,12 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       }), 400, /exceed/);
     });
 
+    it('Stores desk: the photo shows on the GRN line', async () => {
+      const line = ok(await api('get', `/stores/grns/${s.grn}`, f.stores)).lines[0];
+      expect(line.media).toEqual([expect.objectContaining({ file_uri: `s3://it/grn-${RUN}.jpg`, file_name: 'grn.jpg', uploaded_by_id: f.stores })]);
+      expect(line.posted_at).toBeNull();
+    });
+
     it('8-of-10: only accepted qty reaches MAIN_STORE; rejected + held go to QUARANTINE', async () => {
       ok(await api('post', `/grn-lines/${s.grnLine}/post`, f.stores, {
         accepted_quantity: 8, rejected_quantity: 1, held_quantity: 1,
@@ -367,6 +433,25 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
         accepted_quantity: 8, rejected_quantity: 1, held_quantity: 1,
       }), 400, /already posted/);
       expect((await balances(f.companyId, s.item, P())).main).toBe(8);
+    });
+
+    it('Stores desk: posted line shows who posted it and the MAIN_STORE / QUARANTINE ledger movements', async () => {
+      const grn = ok(await api('get', `/stores/grns/${s.grn}`, f.stores));
+      expect(grn).toMatchObject({ grn_status: 'POSTED', lines_posted: 1 });
+      const line = grn.lines[0];
+      expect(line.posted_at).toBeTruthy();
+      expect(line.posted_by_id).toBe(f.stores);
+      expect(line.posted_by_name).toBeTruthy();
+      expect([line.accepted_quantity, line.rejected_quantity, line.held_quantity].map(Number)).toEqual([8, 1, 1]);
+      expect(line.movements).toHaveLength(2);
+      const byRole = Object.fromEntries(line.movements.map((m: any) => [m.to_location_role, m]));
+      expect(byRole.MAIN_STORE).toMatchObject({
+        id: line.main_store_movement_ref, movement_type: 'RECEIPT', status: 'POSTED', from_location_role: null,
+      });
+      expect(Number(byRole.MAIN_STORE.qty)).toBe(8);
+      expect(byRole.MAIN_STORE.to_location_code).toBeTruthy();
+      expect(byRole.QUARANTINE).toMatchObject({ id: line.quarantine_movement_ref, movement_type: 'RECEIPT' });
+      expect(Number(byRole.QUARANTINE.qty)).toBe(2);
     });
 
     it('PO -> RECEIVED once every line’s posted qty (accepted + rejected + held) covers the order', async () => {
@@ -383,6 +468,12 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       fails(await api('post', `/purchase-orders/${s.po}/grns`, f.stores, {
         lines: [{ po_line_id: s.poLine, received_quantity: 1 }],
       }), 400, /ACKNOWLEDGED or SHIPPED/);
+    });
+
+    it('Stores desk: a RECEIVED PO leaves the receivable list; its detail still reads (can_receive false)', async () => {
+      const po = ok(await api('get', `/stores/purchase-orders/${s.po}`, f.stores));
+      expect(po).toMatchObject({ po_status: 'RECEIVED', can_receive: false });
+      expect(ok(await api('get', `/stores/receivable-pos?search=${encodeURIComponent(po.po_number)}`, f.stores)).total).toBe(0);
     });
   });
 

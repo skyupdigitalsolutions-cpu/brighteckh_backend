@@ -593,6 +593,33 @@ Purchase UI (G14–G22, B-1..B-3, C1-1, C2-1/2). Tests: `test/purchase-reads.e2e
 - `GET /quotes/:id` revisions add `sent_at`, `sent_by_id`, `sent_by_name` from the `BR04_QUOTE_SENT` `activity_audit_log` row
   (entity_table `br04_customer_quote_revisions`, entity_id = revision id, written by sendQuote); null until sent.
 
+**Stores desk reads (16 Nov 2026, no migration):** `src/modules/purchase-desk/stores-desk.*`. Tests: `test/flow.e2e-spec.ts`
+(BR-06 block, "Stores desk:" cases). Why: STORES_QUALITY could create / photo / post GRNs but every PO read (list, detail,
+lines) and the GRN list were PURCHASE-only, so Stores could not find a PO or its `po_line_id`s.
+All `@Roles(STORES_QUALITY)`, company from the token, quantities only (never `unit_price`, `currency_code`, `payment_terms`).
+- `GET /stores/receivable-pos`: POs with `po_status` RELEASED / ACKNOWLEDGED / SHIPPED + `acknowledgement` {supplier_reference,
+  expected_delivery_date, acknowledged_at} + `latest_shipment` (newest `br06_shipments` row) + `lines_total`,
+  `lines_outstanding` (received over all GRNs < ordered), `open_grns`, `can_receive` (= ACKNOWLEDGED / SHIPPED, what
+  createGrn accepts). `status` (csv), `search` (PO no., supplier, job no., sales order no.), paging, `counts_by_status`
+  (search only). Order: SHIPPED, ACKNOWLEDGED, RELEASED, then expected date asc (shipment, else ack), then po_number.
+- `GET /stores/purchase-orders/:id`: same header + lines {po_line_id, line_no, item_bridge_id, item_code, item_name, uom,
+  ordered / received (all GRNs) / posted (accepted + rejected + held on posted lines) / outstanding (ordered - received,
+  floor 0)} + the PO's GRNs (header rows). 404 / 403 other company.
+- `GET /stores/grns`: GRN register with PO no., supplier, job / sales order no., received_by_name, `lines_total`,
+  `lines_posted`, derived `grn_status` OPEN (none posted) / PARTIAL / POSTED (all). `status` (csv), `search` (GRN no., PO no.,
+  supplier, job no., sales order no.), paging, `counts_by_status`. Newest received first.
+- `GET /stores/grns/:id`: register row + lines {item code/name, line_no, all quantities, posted_at, `posted_by_id/name` (actor
+  of the `BR06_GRN_LINE_DISPOSED` audit row), movement refs, `media` (br06_grn_line_media, oldest first), `movements`
+  (fdn_inventory_journal rows with reference_id = the line, with from/to location role + code)}.
+- Demo data: `npm run seed:demo-stores` (DEMO-STO login + demo-purchase jobs driven to an ACKNOWLEDGED and a SHIPPED PO;
+  consumes demo jobs, so add a batch first with `seed:demo-purchase -- --again`).
+
+**OPEN DECISIONS (Stores desk, flagged, not resolved):**
+1. GRN header has no delivery-note / vehicle fields and `received_at` is always now(); the UI saves DN + vehicle/AWB into `notes`.
+2. Post has no hold / reject reason field. 3. No over-receipt rule: createGrn doesn't cap received_quantity at the PO line's
+outstanding qty (the UI caps it). 4. A post may allocate less than received; the remainder is never stocked (UI warns).
+5. OpenAPI documents `GrnLineInputDto.received_quantity` minimum 1 but the DTO validates `@IsPositive()`.
+
 **OPEN DECISIONS (Sales desk reads, flagged, not resolved):**
 1. Not built: a responses-feed endpoint (G-S3), a Sales overview/activity endpoint (G-S4), send recipients/email (send has no body).
 2. ~~`POST /jobs/:id/quote-responses` is not hardened server-side~~ — RESOLVED 16 Nov 2026 (product owner approved):
