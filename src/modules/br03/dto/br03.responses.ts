@@ -30,6 +30,40 @@ export class MaterialRequestDetail extends Br03MaterialRequestsRow {
   @ApiProperty({ type: [Br03MaterialChangeRequestsRow] }) change_requests!: Br03MaterialChangeRequestsRow[];
 }
 
+/**
+ * Live fulfilment of one material-request line (read-only; computed at read time, nothing is stored).
+ * Quantities are traced MR line -> BR-05 stock-recheck lines -> COMMITTED reservations -> BR-07 issues.
+ */
+export class MaterialLineFulfilment {
+  @ApiProperty({
+    type: 'number',
+    description: 'Ledger fdn_allocatable(company, item) right now: MAIN_STORE on hand minus active ledger reservations '
+      + '(the same read BR-04 stock checks / BR-05 rechecks use). Company-wide for the item, not reserved for this job.',
+  })
+  allocatable_now!: number;
+  @ApiProperty({ type: 'number', description: 'Σ COMMITTED BR-05 reservations for this line (stays counted after issue)' })
+  reserved_quantity!: number;
+  @ApiProperty({ type: 'number', description: 'Σ BR-07 issued_quantity of the issues made from those reservations' })
+  issued_quantity!: number;
+  @ApiProperty({ type: 'number', description: 'Σ BR-07 consumed_quantity of those issues' })
+  consumed_quantity!: number;
+  @ApiProperty({ type: 'number', description: 'Σ BR-07 returned_quantity (verified returns) of those issues' })
+  returned_quantity!: number;
+}
+
+/** Element of JobMaterialRequest.lines: the stored line + its catalogue names + live fulfilment. */
+export class JobMaterialRequestLine extends Br03MaterialRequestLinesRow {
+  @ApiProperty({ type: String, nullable: true, description: 'br03_item_catalog_bridge.item_code' }) item_code!: string | null;
+  @ApiProperty({ type: String, nullable: true, description: 'br03_item_catalog_bridge.item_name' }) item_name!: string | null;
+  @ApiProperty({ type: MaterialLineFulfilment }) fulfilment!: MaterialLineFulfilment;
+}
+
+/** Element of GET /jobs/:id/material-requests */
+export class JobMaterialRequest extends Br03MaterialRequestsRow {
+  @ApiProperty({ type: [JobMaterialRequestLine], description: 'Ordered by created_at' }) lines!: JobMaterialRequestLine[];
+  @ApiProperty({ type: [Br03MaterialChangeRequestsRow], description: 'Ordered by id' }) change_requests!: Br03MaterialChangeRequestsRow[];
+}
+
 /** POST /inspection-reports/:id/submit and /inspection-reports/:id/review */
 export class InspectionVersionResult {
   @ApiProperty({ type: Br03InspectionReportsRow, description: 'Report header after the change' })

@@ -20,7 +20,8 @@
     "test:integrity": "jest --runInBand",
     "swagger:schemas": "node --env-file=.env scripts/gen-response-schemas.js",
     "test:clean": "node --env-file=.env scripts/test-clean.js",
-    "seed:demo-job": "node --env-file=.env scripts/seed-demo-job.js"
+    "seed:demo-job": "node --env-file=.env scripts/seed-demo-job.js",
+    "seed:demo-purchase": "node --env-file=.env scripts/seed-demo-purchase.js"
   },
   "dependencies": {
     "@fastify/multipart": "^8.3.1",

@@ -101,8 +101,13 @@ export class Br05Service {
     if (job.rows[0].company_id !== actor.companyId) throw new ForbiddenException('job belongs to another company');
 
     const r = await this.pg.query(
-      `SELECT e.* FROM br05_customer_response_events e
+      // + the BR-04 revision behind the BR-05 ref (read-only join; no column changed).
+      `SELECT e.*, b.source_br04_quote_id AS source_br04_quote_revision_id,
+              q.id AS quote_id, q.quote_number, qr.revision_no
+         FROM br05_customer_response_events e
          JOIN br05_quote_revision_refs b ON b.id=e.quote_revision_id
+         JOIN br04_customer_quote_revisions qr ON qr.id=b.source_br04_quote_id
+         JOIN br04_customer_quotes q ON q.id=qr.quote_id
         WHERE b.job_id=$1 ORDER BY e.responded_at DESC`,
       [jobId],
     );
@@ -250,7 +255,14 @@ export class Br05Service {
     if (!job.rows[0]) throw new NotFoundException('job not found');
     if (job.rows[0].company_id !== actor.companyId) throw new ForbiddenException('job belongs to another company');
     const r = await this.pg.query(
-      `SELECT * FROM br05_order_job_allocations WHERE job_id=$1 ORDER BY created_at DESC`, [jobId],
+      // + the BR-04 revision behind accepted_quote_revision_id (a BR-05 ref id).
+      `SELECT a.*, b.source_br04_quote_id AS source_br04_quote_revision_id,
+              q.id AS quote_id, q.quote_number, qr.revision_no
+         FROM br05_order_job_allocations a
+         JOIN br05_quote_revision_refs b ON b.id=a.accepted_quote_revision_id
+         JOIN br04_customer_quote_revisions qr ON qr.id=b.source_br04_quote_id
+         JOIN br04_customer_quotes q ON q.id=qr.quote_id
+        WHERE a.job_id=$1 ORDER BY a.created_at DESC`, [jobId],
     );
     return r.rows;
   }

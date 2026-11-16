@@ -5,7 +5,8 @@ import {
   Br03MaterialChangeRequestsRow, Br03MaterialRequestLinesRow, Br03MaterialRequestsRow,
 } from '../../common/swagger/rows.generated';
 import {
-  CatalogueItem, InspectionReportDetail, InspectionSessionsResponse, InspectionVersionResult, MaterialRequestDetail,
+  CatalogueItem, InspectionReportDetail, InspectionSessionsResponse, InspectionVersionResult, JobMaterialRequest,
+  MaterialRequestDetail,
 } from './dto/br03.responses';
 import { ApiAuth, ApiStdErrors } from '../../common/swagger/api-docs';
 import { Br03Service } from './br03.service';
@@ -125,6 +126,20 @@ export class Br03Controller {
   @Roles(Role.ENGINEER)
   createMaterialRequest(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateMaterialRequestDto, @CurrentActor() actor: Actor) {
     return this.svc.createMaterialRequest(id, dto, actor);
+  }
+
+  @Get('jobs/:id/material-requests')
+  @ApiOperation({
+    summary: "The job's material requests (newest first) with lines, change requests and each line's live fulfilment",
+    description:
+      'Lines add item_code / item_name and `fulfilment` = { allocatable_now (ledger fdn_allocatable for the item, '
+      + 'company-wide), reserved_quantity (COMMITTED BR-05 reservations), issued / consumed / returned_quantity (BR-07 '
+      + 'issues from those reservations) }. Computed at read time; nothing is stored. Empty array when the job has none.',
+  })
+  @ApiOkResponse({ type: [JobMaterialRequest] })
+  @Roles(Role.PURCHASE, Role.MANAGEMENT)
+  getJobMaterialRequests(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
+    return this.svc.getJobMaterialRequests(id, actor);
   }
 
   @Get('material-requests')

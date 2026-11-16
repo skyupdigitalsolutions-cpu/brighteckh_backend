@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Param, Post, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
-  Br05CustomerOrdersRow, Br05CustomerResponseEventsRow, Br05JobAuthorisationsRow, Br05JobReleasesRow,
+  Br05CustomerOrdersRow, Br05JobAuthorisationsRow, Br05JobReleasesRow,
   Br05MaterialReservationsRow, Br05OrderJobAllocationsRow,
 } from '../../common/swagger/rows.generated';
 import {
-  QuoteResponseRecorded, ReservationCommitted, StockRecheckWithLines,
+  OrderAllocation, QuoteResponseEvent, QuoteResponseRecorded, ReservationCommitted, StockRecheckWithLines,
 } from './dto/br05.responses';
 import { ApiAuth, ApiStdErrors } from '../../common/swagger/api-docs';
 import { Br05Service } from './br05.service';
@@ -38,8 +38,8 @@ export class Br05Controller {
   }
 
   @Get('jobs/:id/quote-responses')
-  @ApiOperation({ summary: "Customer quote responses, newest first" })
-  @ApiOkResponse({ type: [Br05CustomerResponseEventsRow] })
+  @ApiOperation({ summary: "Customer quote responses, newest first (+ the BR-04 quote revision each one refers to)" })
+  @ApiOkResponse({ type: [QuoteResponseEvent] })
   getQuoteResponses(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.svc.getQuoteResponses(id, actor);
   }
@@ -78,8 +78,8 @@ export class Br05Controller {
   }
 
   @Get('jobs/:id/order-allocations')
-  @ApiOperation({ summary: "Order-to-job allocations, newest first" })
-  @ApiOkResponse({ type: [Br05OrderJobAllocationsRow] })
+  @ApiOperation({ summary: "Order-to-job allocations, newest first (+ the BR-04 quote revision each one is against)" })
+  @ApiOkResponse({ type: [OrderAllocation] })
   @Roles(Role.PURCHASE)
   getOrderAllocations(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.svc.getOrderAllocations(id, actor);

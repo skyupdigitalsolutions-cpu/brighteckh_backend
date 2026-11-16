@@ -654,7 +654,12 @@ export class Br04Service {
     if (quote.rows[0].company_id !== actor.companyId) throw new ForbiddenException('quote belongs to another company');
 
     const revisions = await this.pg.query(
-      `SELECT * FROM br04_customer_quote_revisions WHERE quote_id=$1 ORDER BY revision_no`, [id],
+      // + the revision's Sales handoff (one per revision, UNIQUE(quote_revision_id)); null until released.
+      `SELECT r.*, h.assigned_sales_id, h.released_by_purchase_id AS released_to_sales_by_id,
+              h.released_at AS released_to_sales_at
+         FROM br04_customer_quote_revisions r
+         LEFT JOIN br04_quote_sales_handoffs h ON h.quote_revision_id = r.id
+        WHERE r.quote_id=$1 ORDER BY r.revision_no`, [id],
     );
     const withLines = await Promise.all(revisions.rows.map(async (rev) => {
       const lines = await this.pg.query(

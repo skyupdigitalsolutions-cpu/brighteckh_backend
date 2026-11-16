@@ -511,6 +511,72 @@ export class Br03Service {
   }
 
   /**
+   * GET /jobs/:id/material-requests -- every material request of one job (newest first) with lines, change
+   * requests, the lines' catalogue names and their live fulfilment. Read-only, one query per relation (no N+1).
+   * Fulfilment traces MR line -> br05_stock_recheck_lines -> COMMITTED br05_material_reservations ->
+   * br07_material_issues; allocatable_now is the ledger's fdn_allocatable(company, item), the read BR-04/BR-05 use.
+   */
+  async getJobMaterialRequests(jobId: string, actor: Actor) {
+    const job = await this.pg.query<{ company_id: string }>(`SELECT company_id FROM service_jobs WHERE id=$1`, [jobId]);
+    if (!job.rows[0]) throw new NotFoundException('job not found');
+    if (job.rows[0].company_id !== actor.companyId) throw new ForbiddenException('job belongs to another company');
+
+    const reqs = await this.pg.query(
+      `SELECT * FROM br03_material_requests WHERE job_id=$1 AND company_id=$2 ORDER BY created_at DESC`,
+      [jobId, actor.companyId],
+    );
+    if (reqs.rows.length === 0) return [];
+    const ids = reqs.rows.map((x) => x.id);
+
+    const [lines, crs] = await Promise.all([
+      this.pg.query(
+        `SELECT l.*, b.item_code, b.item_name,
+                fdn_allocatable($2, b.br01_item_id) AS allocatable_now,
+                COALESCE(f.reserved_quantity, 0)  AS reserved_quantity,
+                COALESCE(f.issued_quantity, 0)    AS issued_quantity,
+                COALESCE(f.consumed_quantity, 0)  AS consumed_quantity,
+                COALESCE(f.returned_quantity, 0)  AS returned_quantity
+           FROM br03_material_request_lines l
+           LEFT JOIN br03_item_catalog_bridge b ON b.id = l.item_bridge_id
+           LEFT JOIN LATERAL (
+             SELECT SUM(res.reserved_quantity)    AS reserved_quantity,
+                    SUM(iss.issued_quantity)      AS issued_quantity,
+                    SUM(iss.consumed_quantity)    AS consumed_quantity,
+                    SUM(iss.returned_quantity)    AS returned_quantity
+               FROM br05_stock_recheck_lines rl
+               JOIN br05_material_reservations res
+                 ON res.stock_recheck_line_id = rl.id AND res.reservation_status = 'COMMITTED'
+               LEFT JOIN br07_material_issues iss ON iss.br05_material_reservation_id = res.id
+              WHERE rl.material_request_line_id = l.id
+           ) f ON true
+          WHERE l.request_id = ANY($1::uuid[])
+          ORDER BY l.created_at`,
+        [ids, actor.companyId],
+      ),
+      this.pg.query(
+        `SELECT * FROM br03_material_change_requests WHERE material_request_id = ANY($1::uuid[]) ORDER BY id`, [ids],
+      ),
+    ]);
+
+    return reqs.rows.map((req) => ({
+      ...req,
+      lines: lines.rows
+        .filter((l) => l.request_id === req.id)
+        .map(({ allocatable_now, reserved_quantity, issued_quantity, consumed_quantity, returned_quantity, ...l }) => ({
+          ...l,
+          fulfilment: {
+            allocatable_now: Number(allocatable_now ?? 0),
+            reserved_quantity: Number(reserved_quantity),
+            issued_quantity: Number(issued_quantity),
+            consumed_quantity: Number(consumed_quantity),
+            returned_quantity: Number(returned_quantity),
+          },
+        })),
+      change_requests: crs.rows.filter((c) => c.material_request_id === req.id),
+    }));
+  }
+
+  /**
    * G10: catalogue-bridge rows usable on a material line -- exactly the rows br03_guard_material_line
    * accepts (bridge approval_status='APPROVED' AND is_active), joined to the BR-01 Item Master they cache.
    * Read-only. The bridge is global (no company column); the request id scopes the caller's company.

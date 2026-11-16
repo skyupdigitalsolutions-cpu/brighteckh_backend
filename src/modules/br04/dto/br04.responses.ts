@@ -52,6 +52,15 @@ export class RfqDetail extends Br04RfqsRow {
 export class QuoteRevisionWithLines extends Br04CustomerQuoteRevisionsRow {
   @ApiProperty({ type: [Br04CustomerQuoteLinesRow], description: 'Ordered by line_no' })
   lines!: Br04CustomerQuoteLinesRow[];
+  @ApiProperty({
+    type: String, format: 'uuid', nullable: true,
+    description: 'br04_quote_sales_handoffs.assigned_sales_id for this revision; null until it is released to Sales',
+  })
+  assigned_sales_id!: string | null;
+  @ApiProperty({ type: String, format: 'uuid', nullable: true, description: 'br04_quote_sales_handoffs.released_by_purchase_id' })
+  released_to_sales_by_id!: string | null;
+  @ApiProperty({ type: String, format: 'date-time', nullable: true, description: 'br04_quote_sales_handoffs.released_at' })
+  released_to_sales_at!: string | null;
 }
 
 /** GET /quotes/:id — customer quote with every revision and its lines. */

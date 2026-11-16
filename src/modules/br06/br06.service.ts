@@ -437,6 +437,44 @@ export class Br06Service {
     return r.rows[0];
   }
 
+  /**
+   * PO -> RECEIVED (rule confirmed by the product owner 14 Nov 2026, "all qty posted"): once EVERY line of the PO has
+   * POSTED GRN quantity (accepted + rejected + held, summed over all of its GRNs) >= the ordered quantity, an
+   * ACKNOWLEDGED / SHIPPED PO becomes RECEIVED. Rejected / held stock still counts as received (it follows the
+   * supplier-return path); a partial receipt leaves the status unchanged. Runs in the disposition transaction with the
+   * PO row locked, so concurrent posts of different lines can't both miss the final state. CLOSED is not set here.
+   */
+  private async advancePoIfFullyReceived(client: PoolClient, grnId: string, actor: Actor) {
+    const po = await client.query<{ id: string; po_status: string }>(
+      `SELECT p.id, p.po_status FROM br06_supplier_purchase_orders p
+         JOIN br06_grns g ON g.po_id = p.id
+        WHERE g.id = $1 FOR UPDATE OF p`,
+      [grnId],
+    );
+    const before = po.rows[0];
+    if (!before || !['ACKNOWLEDGED', 'SHIPPED'].includes(before.po_status)) return;
+
+    const short = await client.query(
+      `SELECT pl.id
+         FROM br06_po_lines pl
+         LEFT JOIN LATERAL (
+           SELECT SUM(gl.accepted_quantity + gl.rejected_quantity + gl.held_quantity) AS posted
+             FROM br06_grn_lines gl
+            WHERE gl.po_line_id = pl.id AND gl.posted_at IS NOT NULL
+         ) x ON true
+        WHERE pl.po_id = $1 AND COALESCE(x.posted, 0) < pl.quantity
+        LIMIT 1`,
+      [before.id],
+    );
+    if (short.rows.length > 0) return;
+
+    const after = await client.query(
+      `UPDATE br06_supplier_purchase_orders SET po_status='RECEIVED' WHERE id=$1 RETURNING *`, [before.id],
+    );
+    await this.audit(client, actor.companyId, actor.id, 'br06_supplier_purchase_orders', before.id,
+      'BR06_PO_RECEIVED', before, after.rows[0]);
+  }
+
   async addGrnLineMedia(grnLineId: string, dto: AddGrnLineMediaDto, actor: Actor) {
     const line = await this.pg.query<{ company_id: string }>(
       `SELECT g.company_id FROM br06_grn_lines gl JOIN br06_grns g ON g.id=gl.grn_id WHERE gl.id=$1`, [grnLineId],
@@ -487,6 +525,7 @@ export class Br06Service {
         );
         await this.audit(client, actor.companyId, actor.id, 'br06_grn_lines', grnLineId,
           'BR06_GRN_LINE_DISPOSED', line, r.rows[0]);
+        await this.advancePoIfFullyReceived(client, line.grn_id, actor);
         return { ...r.rows[0], company_id: line.company_id };
       });
     } catch (e) {

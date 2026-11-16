@@ -282,12 +282,37 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       expect(ok(await api('get', `/jobs/${s.job}/authorisations`, P()))).toHaveLength(0);
     });
 
+    it('quote-response + allocation reads name the BR-04 revision behind the BR-05 ref', async () => {
+      const quote = ok(await api('get', `/quotes/${s.quote}`, P()));
+      const rev = quote.revisions.find((r: any) => r.id === s.quoteRevision);
+      const expected = {
+        source_br04_quote_revision_id: s.quoteRevision, quote_id: s.quote,
+        quote_number: quote.quote_number, revision_no: rev.revision_no,
+      };
+      const resp = ok(await api('get', `/jobs/${s.job}/quote-responses`, f.sales))
+        .find((r: any) => r.quote_revision_id === s.quoteRef);
+      expect(resp).toMatchObject(expected);
+      const alloc = ok(await api('get', `/jobs/${s.job}/order-allocations`, P())).find((a: any) => a.id === s.alloc);
+      expect(alloc).toMatchObject({ ...expected, accepted_quote_revision_id: s.quoteRef });
+    });
+
     it('after release-to-sales + send, the email authority authorises the job', async () => {
       fails(await api('post', `/quotes/${s.quote}/send`, f.sales), 400, /released to Sales/);
       ok(await api('post', `/quotes/${s.quote}/release-to-sales`, P(), { assigned_sales_id: f.sales }));
       ok(await api('post', `/quotes/${s.quote}/send`, f.sales));
       const a = ok(await api('post', `/jobs/${s.job}/authorisations`, P(), { order_job_allocation_id: s.alloc }));
       expect(a.authorisation_kind).toBe('EMAIL_AUTHORISATION');
+    });
+
+    it('quote detail shows the Sales person each revision was released to (null before release)', async () => {
+      const quote = ok(await api('get', `/quotes/${s.quote}`, P()));
+      const released = quote.revisions.find((r: any) => r.id === s.quoteRevision);
+      expect(released.assigned_sales_id).toBe(f.sales);
+      expect(released.released_to_sales_by_id).toBe(f.purchase);
+      expect(released.released_to_sales_at).toBeTruthy();
+      for (const r of quote.revisions.filter((x: any) => x.id !== s.quoteRevision)) {
+        expect(r).toMatchObject({ assigned_sales_id: null, released_to_sales_by_id: null, released_to_sales_at: null });
+      }
     });
 
     it('stock recheck + job release', async () => {
@@ -308,6 +333,11 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
         lines: [{ po_line_id: po.lines[0].id, received_quantity: 10 }],
       }));
       s.grnLine = grn.lines[0].id;
+      s.po = po.id;
+      s.poLine = po.lines[0].id;
+      s.poOrdered = Number(po.lines[0].quantity);
+      // A GRN that is only counted (not yet posted) does not move the PO.
+      expect(ok(await api('get', `/purchase-orders/${po.id}`, P())).po_status).toBe('ACKNOWLEDGED');
     });
 
     it('photo-per-line gate: cannot post a GRN line without a photo', async () => {
@@ -334,6 +364,22 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
         accepted_quantity: 8, rejected_quantity: 1, held_quantity: 1,
       }), 400, /already posted/);
       expect((await balances(f.companyId, s.item, P())).main).toBe(8);
+    });
+
+    it('PO -> RECEIVED once every line’s posted qty (accepted + rejected + held) covers the order', async () => {
+      // 8 accepted + 1 rejected + 1 held = 10 posted against the ordered quantity.
+      expect(s.poOrdered).toBeLessThanOrEqual(10);
+      const po = ok(await api('get', `/purchase-orders/${s.po}`, P()));
+      expect(po.po_status).toBe('RECEIVED');
+      const audit = await c.query(
+        `SELECT before_state->>'po_status' AS was, after_state->>'po_status' AS now
+           FROM activity_audit_log WHERE entity_id=$1 AND action='BR06_PO_RECEIVED'`, [s.po],
+      );
+      expect(audit.rows).toEqual([{ was: 'ACKNOWLEDGED', now: 'RECEIVED' }]);
+      // A fully received PO takes no further GRN.
+      fails(await api('post', `/purchase-orders/${s.po}/grns`, f.stores, {
+        lines: [{ po_line_id: s.poLine, received_quantity: 1 }],
+      }), 400, /ACKNOWLEDGED or SHIPPED/);
     });
   });
 
@@ -418,6 +464,22 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       const b = await balances(f.companyId, s.item, P());
       expect(b).toMatchObject({ main: 3, held: 0, consumed: 5, quarantine: 2, allocatable: 3 });
       expect(b.main + b.held + b.consumed).toBe(8); // all 8 accepted units accounted for
+    });
+
+    it('GET /jobs/:id/material-requests: per-job read with each line live fulfilment', async () => {
+      fails(await api('get', `/jobs/${s.job}/material-requests`, E()), 403);
+      const mrs = ok(await api('get', `/jobs/${s.job}/material-requests`, P()));
+      expect(mrs.map((m: any) => m.id)).toContain(s.mr);
+      const mr = mrs.find((m: any) => m.id === s.mr);
+      expect(Array.isArray(mr.change_requests)).toBe(true);
+      expect(mr.lines.length).toBeGreaterThan(0);
+      const line = mr.lines[0];
+      expect(line.item_code).toBeTruthy();
+      expect(line.item_name).toBeTruthy();
+      // reserved 8 -> issued 8 -> consumed 5 + verified return 3; ledger allocatable back to 3 (MAIN 3, no reservation)
+      expect(line.fulfilment).toEqual({
+        allocatable_now: 3, reserved_quantity: 8, issued_quantity: 8, consumed_quantity: 5, returned_quantity: 3,
+      });
     });
 
     const startCycle = async () =>

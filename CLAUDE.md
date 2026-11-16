@@ -553,6 +553,25 @@ Purchase UI (G14–G22, B-1..B-3, C1-1, C2-1/2). Tests: `test/purchase-reads.e2e
 5. Overview intake week is fixed Mon–Sat (client calendar); Sunday receipts are not shown.
 6. Not built: G23 notifications, G24 global search, RFQ history/cancel/COMPARED (C2-3..5).
 
+**Job-tab gaps — migration 025 (data only) + reads (14 Nov 2026):** found smoke-testing the Purchase job tabs. Tests in
+`test/flow.e2e-spec.ts` (BR-05 / BR-06 / BR-07 sections).
+- `GET /jobs/:id/material-requests` (PURCHASE, MANAGEMENT): the job's MRs newest first with lines + change requests.
+  Lines add `item_code`/`item_name` and `fulfilment` {allocatable_now = ledger `fdn_allocatable(company, item)` (the
+  BR-04/BR-05 read, company-wide), reserved_quantity = Σ COMMITTED BR-05 reservations of the line's recheck lines,
+  issued / consumed / returned_quantity = Σ BR-07 issues made from those reservations}. Read time only; nothing stored.
+  Replaces the inbox filter + per-MR fetch the UI used. `GET /material-requests` is unchanged.
+- `GET /jobs/:id/quote-responses` and `/jobs/:id/order-allocations` rows add `source_br04_quote_revision_id`
+  (= br05_quote_revision_refs.source_br04_quote_id), `quote_id`, `quote_number`, `revision_no` (0-based, as stored).
+  The existing `quote_revision_id` / `accepted_quote_revision_id` are BR-05 ref ids, NOT BR-04 revision ids.
+- `GET /quotes/:id` revisions add `assigned_sales_id`, `released_to_sales_by_id`, `released_to_sales_at` from
+  `br04_quote_sales_handoffs` (null until that revision is released). Names via `/lookups/employees`.
+- **PO → RECEIVED (rule CONFIRMED by the product owner 14 Nov 2026, "all qty posted"):** `POST /grn-lines/:id/post`
+  moves an ACKNOWLEDGED / SHIPPED PO to RECEIVED once EVERY PO line has posted GRN quantity (accepted + rejected +
+  held, all GRNs) >= ordered quantity; same transaction as the disposition, PO row locked, audit `BR06_PO_RECEIVED`.
+  Partial receipts leave the status unchanged. A RECEIVED PO takes no further GRN (createGrn already required
+  ACKNOWLEDGED/SHIPPED). `CLOSED` is still never set (no rule). Migration 025 applies the rule once to POs that were
+  already fully posted (audit `BR06_PO_RECEIVED_BACKFILL`, actor NULL); idempotent, no schema change.
+
 ## 4e. Working calendar — migration 012, src/modules/calendar
 
 Client-confirmed: both companies Mon–Sat; Mon–Fri 09:30–18:30, Sat 09:30–16:00; lunch
