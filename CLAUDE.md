@@ -384,6 +384,22 @@ build-session client decisions (†).
    recipients (10C-03/04, P11), review cadence (10C-05, P12), KPI validation workflow
    (10C-10, P13; all reports stay `kpi_status=DRAFT`), scheduled historical extracts (10A-08).
 8. Supplier-level KPIs and lead time stay null (SUPPLIER_MASTER_PENDING / DRAFT: 10B-02/08).
+9. R_MGMT_COMPANY also has no PII_CUSTOMER, ENGINEER_PERFORMANCE or AUDIT row: Management can't be granted the
+   Engineer performance / Access audit reports, and customer name / GSTIN stay masked for Management.
+
+**Governance reads (17 Nov 2026, no migration; for the /mg + /a UI).** Tests: `test/flow.e2e-spec.ts` BR-10 block.
+- `GET /mis/role-bindings` (SYSTEM_ADMIN): the company's bindings + employee code / name / role / active flag and
+  created / activated / revoked-by names. INACTIVE first, then ACTIVE, REVOKED.
+- `GET /mis/report-grants` (SYSTEM_ADMIN, existing): now also `employee_name`, `target_company_code`, `data_class`
+  (`employee_code` was already returned, now documented).
+- `GET /mis/report-grants/pending-my-approval` (any role): INACTIVE grants with `can_approve_kinds` = the approvals the
+  CALLER can record now, computed with the same clauses as `br10_guard_approval` (required + not recorded; not the
+  grantee; not already approved by the caller; STANDARD = SYSTEM_ADMIN of the grantee company; FINANCIAL / CROSS_COMPANY =
+  configured authoriser role of the data-owner company, FINANCIAL never SYSTEM_ADMIN). Rows with no kind are dropped.
+- `GET /mis/employees` (SYSTEM_ADMIN): active employees + `bindable_role_codes` (R_* whose maps_to_role_code = their role).
+- `GET /mis/companies` (any role): legal entities (id, entity_code, name) for report scope / grant targets.
+- Demo data: `npm run seed:demo-mis` (DEMO-ADM / DEMO-MGT / DEMO-FIN, bindings + grants in every state; never sets the
+  authoriser config).
 
 ## 4h. BR-11 (Sales & Supply: enquiry → quote → SO → reserve → outward → POD → billing → closure) — migrations 018/019, src/modules/br11
 

@@ -196,13 +196,83 @@ export class Br10Service {
     });
   }
 
+  // ================================================================ governance reads (CLAUDE.md §4g "governance reads")
+
+  /** Grant + grantee / data-owner names + approvals. `$1` = caller's company in every caller below. */
+  private static readonly GRANT_SELECT = `
+    SELECT g.*, e.employee_code, e.full_name AS employee_name, tc.entity_code AS target_company_code, rc.data_class,
+           (SELECT json_agg(a ORDER BY a.approved_at) FROM br10_grant_approvals a WHERE a.grant_id=g.id) AS approvals
+      FROM br10_report_grants g
+      JOIN employees e              ON e.id=g.employee_id
+      JOIN legal_entities tc        ON tc.id=g.target_company_id
+      JOIN br10_report_catalogue rc ON rc.report_code=g.report_code
+     WHERE (g.company_id=$1 OR g.target_company_id=$1)`;
+
   async listGrants(actor: Actor) {
-    const r = await this.pg.query(
-      `SELECT g.*, e.employee_code,
-              (SELECT json_agg(a ORDER BY a.approved_at) FROM br10_grant_approvals a WHERE a.grant_id=g.id) AS approvals
-         FROM br10_report_grants g JOIN employees e ON e.id=g.employee_id
-        WHERE g.company_id=$1 OR g.target_company_id=$1 ORDER BY g.created_at DESC LIMIT 1000`, [actor.companyId]);
+    const r = await this.pg.query(`${Br10Service.GRANT_SELECT} ORDER BY g.created_at DESC LIMIT 1000`, [actor.companyId]);
     return r.rows;
+  }
+
+  /**
+   * INACTIVE grants the caller can approve right now, with the approval kinds they can record. Mirrors the
+   * br10_guard_approval trigger (017) clause by clause, so the list never offers an approval the DB would refuse.
+   */
+  async pendingMyApproval(actor: Actor) {
+    const r = await this.pg.query(`
+      SELECT * FROM (
+        SELECT x.*, ARRAY(
+          SELECT k FROM unnest(x.required_approvals) k
+           WHERE NOT EXISTS (SELECT 1 FROM br10_grant_approvals a WHERE a.grant_id=x.id AND a.approval_kind=k)
+             AND CASE WHEN k='STANDARD' THEN $1=x.company_id AND br10_is_admin(x.company_id, $2)
+                 ELSE $1=x.target_company_id
+                      AND EXISTS (SELECT 1 FROM br10_authority_config ac
+                                   WHERE ac.company_id=x.target_company_id
+                                     AND ac.authority_kind = CASE k WHEN 'FINANCIAL' THEN 'FINANCIAL_GRANT' ELSE 'CROSS_COMPANY_GRANT' END
+                                     AND ac.approver_role_code IS NOT NULL
+                                     AND br08_has_role(x.target_company_id, $2, ac.approver_role_code))
+                      AND NOT (k='FINANCIAL' AND br10_is_admin(x.target_company_id, $2))
+                 END
+        ) AS can_approve_kinds
+          FROM (${Br10Service.GRANT_SELECT}
+                  AND g.status='INACTIVE' AND g.employee_id<>$2
+                  AND NOT EXISTS (SELECT 1 FROM br10_grant_approvals a WHERE a.grant_id=g.id AND a.approved_by_id=$2)) x
+      ) y
+      WHERE cardinality(y.can_approve_kinds) > 0
+      ORDER BY y.created_at, y.id`, [actor.companyId, actor.id]);
+    return r.rows;
+  }
+
+  async listBindings(actor: Actor) {
+    const r = await this.pg.query(`
+      SELECT b.*, e.employee_code, e.full_name AS employee_name, e.role_code AS employee_role_code,
+             e.is_active AS employee_is_active, cb.full_name AS created_by_name,
+             ab.full_name AS activated_by_name, rb.full_name AS revoked_by_name
+        FROM br10_role_bindings b
+        JOIN employees e       ON e.id=b.employee_id
+        JOIN employees cb      ON cb.id=b.created_by_id
+        LEFT JOIN employees ab ON ab.id=b.activated_by_id
+        LEFT JOIN employees rb ON rb.id=b.revoked_by_id
+       WHERE b.company_id=$1
+       ORDER BY CASE b.status WHEN 'INACTIVE' THEN 0 WHEN 'ACTIVE' THEN 1 ELSE 2 END, e.full_name, b.created_at DESC
+       LIMIT 1000`, [actor.companyId]);
+    return r.rows;
+  }
+
+  /** Active employees of the caller's company, with the R_* roles each can be bound to (maps_to_role_code = their role). */
+  async listEmployees(actor: Actor) {
+    const r = await this.pg.query(`
+      SELECT e.id, e.employee_code, e.full_name, e.role_code,
+             ARRAY(SELECT rc.role_code FROM br10_role_catalogue rc WHERE rc.maps_to_role_code=e.role_code ORDER BY rc.role_code)
+               AS bindable_role_codes
+        FROM employees e
+       WHERE e.company_id=$1 AND e.is_active
+       ORDER BY e.full_name, e.employee_code
+       LIMIT 2000`, [actor.companyId]);
+    return r.rows;
+  }
+
+  async listCompanies() {
+    return (await this.pg.query(`SELECT id, entity_code, name FROM legal_entities WHERE is_active ORDER BY entity_code`)).rows;
   }
 
   createSalesAssignment(dto: CreateSalesAssignmentDto, actor: Actor) {

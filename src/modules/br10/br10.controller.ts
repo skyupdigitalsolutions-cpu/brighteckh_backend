@@ -18,7 +18,10 @@ import {
   ApproveGrantDto, AuthorityDto, CreateBindingDto, CreateGrantDto, CreateSalesAssignmentDto, ExportQueryDto,
   REPORT_CODES, ReportQueryDto,
 } from './dto/br10.dto';
-import { AuthorityStatus, Br10Catalogue, GrantWithApprovals, MyAccess, ReportResponse } from './dto/br10.responses';
+import {
+  AuthorityStatus, Br10BindingListRow, Br10Catalogue, Br10CompanyRow, Br10EmployeeRow, Br10GrantListRow, Br10PendingApprovalRow,
+  GrantWithApprovals, MyAccess, ReportResponse,
+} from './dto/br10.responses';
 
 /** Report routes: no fixed @Roles -- access is the per-employee BR-10 entitlement (binding + matrix + grant). */
 const Entitled = (action: 'VIEW' | 'EXPORT') => applyDecorators(
@@ -72,7 +75,24 @@ export class Br10Controller {
   @ApiOkResponse({ type: MyAccess })
   myAccess(@CurrentActor() a: Actor) { return this.svc.myAccess(a); }
 
+  @Get('companies')
+  @ApiOperation({ summary: 'Legal entities (id, code, name): report `companies` scope and cross-company grant targets' })
+  @ApiOkResponse({ type: [Br10CompanyRow] })
+  companies() { return this.svc.listCompanies(); }
+
+  @Get('employees')
+  @Roles(Role.SYSTEM_ADMIN)
+  @ApiOperation({ summary: 'Active employees of the caller company with the R_* roles each can be bound to (binding / grant pickers)' })
+  @ApiOkResponse({ type: [Br10EmployeeRow] })
+  employees(@CurrentActor() a: Actor) { return this.svc.listEmployees(a); }
+
   // ---- role bindings (SYSTEM_ADMIN)
+
+  @Get('role-bindings')
+  @Roles(Role.SYSTEM_ADMIN)
+  @ApiOperation({ summary: 'Role bindings of the caller company with employee + actor names (INACTIVE first, then ACTIVE, REVOKED)' })
+  @ApiOkResponse({ type: [Br10BindingListRow] })
+  listBindings(@CurrentActor() a: Actor) { return this.svc.listBindings(a); }
 
   @Post('role-bindings')
   @Roles(Role.SYSTEM_ADMIN)
@@ -94,8 +114,15 @@ export class Br10Controller {
 
   @Get('report-grants')
   @Roles(Role.SYSTEM_ADMIN)
-  @ApiOkResponse({ type: [GrantWithApprovals] })
+  @ApiOperation({ summary: 'Grants where the caller company is the grantee or data-owner company, newest first, with names + approvals' })
+  @ApiOkResponse({ type: [Br10GrantListRow] })
   listGrants(@CurrentActor() a: Actor) { return this.svc.listGrants(a); }
+
+  @Get('report-grants/pending-my-approval')
+  @ApiExtension('x-roles', ['ANY: returns only grants the caller can approve now (SYSTEM_ADMIN -> STANDARD; configured authoriser -> FINANCIAL / CROSS_COMPANY)'])
+  @ApiOperation({ summary: 'INACTIVE grants awaiting an approval the CALLER can give (same rules as the approval trigger), oldest first' })
+  @ApiOkResponse({ type: [Br10PendingApprovalRow] })
+  pendingMyApproval(@CurrentActor() a: Actor) { return this.svc.pendingMyApproval(a); }
 
   @Post('report-grants')
   @Roles(Role.SYSTEM_ADMIN)

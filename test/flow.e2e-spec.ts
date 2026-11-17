@@ -1298,6 +1298,9 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       return a;
     };
     const view = (actor: string, report: string, qs = '') => api('get', `/mis/reports/${report}${qs}`, actor);
+    /** GET /mis/report-grants/pending-my-approval as `actor` -> { grantId: can_approve_kinds }. */
+    const pending = async (actor: string) =>
+      Object.fromEntries(ok<any[]>(await api('get', '/mis/report-grants/pending-my-approval', actor)).map((g) => [g.id, g.can_approve_kinds]));
     const download = async (actor: string, report: string, format: string) => {
       const res = await request(BASE).get(`/mis/reports/${report}/export?format=${format}`)
         .set('Authorization', `Bearer ${await tokenFor(actor)}`)
@@ -1334,7 +1337,11 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       expect(await dbRejects(c, `UPDATE br10_report_grants SET status='ACTIVE', activated_at=now() WHERE id=$1`, [g.id]))
         .toMatch(/required approvals/);
       fails(await api('post', `/mis/report-grants/${g.id}/approve`, P(), { approval_kind: 'STANDARD' }), 403);
+      // Governance read: the STANDARD approval is pending for SYSTEM_ADMIN only (never for the grantee).
+      expect((await pending(ADM()))[g.id]).toEqual(['STANDARD']);
+      expect((await pending(P()))[g.id]).toBeUndefined();
       ok(await api('post', `/mis/report-grants/${g.id}/approve`, ADM(), { approval_kind: 'STANDARD' }));
+      expect((await pending(ADM()))[g.id]).toBeUndefined();
 
       const r = ok(await view(P(), 'SERVICE_PIPELINE'));
       expect(r.scope.row_scope).toBe('COMPANY');
@@ -1349,6 +1356,33 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
         [f.purchase]);
       expect(denied.rows[0].n).toBeGreaterThanOrEqual(3);
       expect(await dbRejects(c, `DELETE FROM br10_report_access_log WHERE employee_id=$1`, [f.purchase])).toMatch(/append_only/);
+    });
+
+    it('governance reads: bindings / grants / employees lists carry names (SYSTEM_ADMIN only); companies for anyone', async () => {
+      for (const path of ['/mis/role-bindings', '/mis/employees', '/mis/report-grants']) fails(await api('get', path, P()), 403);
+
+      const bindings = ok<any[]>(await api('get', '/mis/role-bindings', ADM()));
+      const b = bindings.find((x) => x.id === s.purchaseBinding);
+      expect(b).toMatchObject({ employee_id: f.purchase, role_code: 'R_PURCHASE_EXEC', status: 'ACTIVE', employee_role_code: 'PURCHASE', employee_is_active: true });
+      expect(b.employee_name).toBeTruthy();
+      expect(b.created_by_name).toBeTruthy();
+      expect(b.activated_by_name).toBeTruthy();
+      expect(b.revoked_by_name).toBeNull();
+      expect(bindings.every((x) => x.company_id === f.companyId)).toBe(true);
+
+      const emps = ok<any[]>(await api('get', '/mis/employees', ADM()));
+      expect(emps.find((e) => e.id === f.purchase)).toMatchObject({ role_code: 'PURCHASE', bindable_role_codes: ['R_PURCHASE_EXEC'] });
+      expect(emps.find((e) => e.id === f.mgmt).bindable_role_codes).toEqual(['R_MGMT_COMPANY', 'R_MGMT_GROUP']);
+
+      const grants = ok<any[]>(await api('get', '/mis/report-grants', ADM()));
+      const g = grants.find((x) => x.employee_id === f.purchase && x.report_code === 'SERVICE_PIPELINE' && x.action === 'VIEW' && x.status === 'ACTIVE');
+      expect(g).toMatchObject({ data_class: 'OPERATIONS', target_company_id: f.companyId });
+      expect(g.employee_name).toBeTruthy();
+      expect(g.target_company_code).toMatch(/^[A-Z]{3}$/);
+      expect(g.approvals).toEqual([expect.objectContaining({ approval_kind: 'STANDARD', approved_by_id: f.admin })]);
+
+      const cos = ok<any[]>(await api('get', '/mis/companies', P()));
+      expect(cos.find((x) => x.id === f.companyId)?.entity_code).toMatch(/^[A-Z]{3}$/);
     });
 
     it('VIEW grant is not EXPORT; exports (csv/xlsx/pdf) need their own grant, are masked and audited', async () => {
@@ -1458,11 +1492,17 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       expect(g.required_approvals).toEqual(['FINANCIAL']);
       fails(await api('post', `/mis/report-grants/${g.id}/approve`, ADM(), { approval_kind: 'STANDARD' }), 400, /does not need a STANDARD/);
       fails(await api('post', `/mis/report-grants/${g.id}/approve`, f.mgmt, { approval_kind: 'FINANCIAL' }), 400, /CLIENT-UNCONFIRMED/);
+      expect((await pending(f.mgmt))[g.id]).toBeUndefined();   // no authoriser configured -> nobody can approve
+      expect((await pending(ADM()))[g.id]).toBeUndefined();
 
       // Test-only authoriser assignment (restored in afterAll) -- NOT a decision about who authorises.
       ok(await api('put', '/mis/authorities', ADM(), { authority_kind: 'FINANCIAL_GRANT', approver_role_code: 'MANAGEMENT' }));
       fails(await api('post', `/mis/report-grants/${g.id}/approve`, ADM(), { approval_kind: 'FINANCIAL' }), 403, /authoriser role/);
+      expect((await pending(f.mgmt))[g.id]).toEqual(['FINANCIAL']);  // the configured authoriser's queue
+      expect((await pending(ADM()))[g.id]).toBeUndefined();          // T08: never the technical admin
+      expect((await pending(f.finance))[g.id]).toBeUndefined();      // never the grantee
       expect(ok(await api('post', `/mis/report-grants/${g.id}/approve`, f.mgmt, { approval_kind: 'FINANCIAL' })).status).toBe('ACTIVE');
+      expect((await pending(f.mgmt))[g.id]).toBeUndefined();
 
       const r = ok(await view(f.finance, 'JOB_PROFITABILITY'));
       expect(r.summary.kpi_status).toBe('UNVERIFIED');

@@ -58,3 +58,55 @@ export class AuthorityStatus {
   @ApiProperty({ type: 'string', nullable: true }) note!: string | null;
   @ApiProperty({ type: 'string', format: 'date-time', nullable: true }) updated_at!: string | null;
 }
+
+// ---------------------------------------------------------------- governance reads (16 Nov 2026, see CLAUDE.md §4g)
+
+/** A grant with the names the RBAC screens show (GET /mis/report-grants, GET /mis/report-grants/pending-my-approval). */
+export class Br10GrantListRow extends GrantWithApprovals {
+  @ApiProperty({ description: 'employees.employee_code of the grantee' }) employee_code!: string;
+  @ApiProperty({ description: 'employees.full_name of the grantee' }) employee_name!: string;
+  @ApiProperty({ description: 'legal_entities.entity_code of target_company_id (the data owner)' }) target_company_code!: string;
+  @ApiProperty({
+    enum: ['OPERATIONS', 'PROCUREMENT', 'MARGIN_PROFIT', 'RECEIVABLES', 'RECEIVABLE_STATUS', 'ENGINEER_PERFORMANCE', 'AUDIT', 'CONFIG', 'PII_CUSTOMER'],
+    description: 'br10_report_catalogue.data_class of report_code',
+  })
+  data_class!: string;
+}
+
+export class Br10PendingApprovalRow extends Br10GrantListRow {
+  @ApiProperty({
+    type: [String], enum: ['STANDARD', 'FINANCIAL', 'CROSS_COMPANY'],
+    description: 'Approval kinds the CALLER can record on this grant right now (same rules as the br10_guard_approval trigger): '
+      + 'required, not yet recorded, caller is not the grantee and has not already approved it; STANDARD = SYSTEM_ADMIN of the '
+      + 'grantee company; FINANCIAL / CROSS_COMPANY = the configured authoriser role of the data-owner company (FINANCIAL never '
+      + 'SYSTEM_ADMIN). Never empty in this list.',
+  })
+  can_approve_kinds!: string[];
+}
+
+export class Br10BindingListRow extends Br10RoleBindingsRow {
+  @ApiProperty() employee_code!: string;
+  @ApiProperty() employee_name!: string;
+  @ApiProperty({ enum: ['PURCHASE', 'ENGINEER', 'SALES', 'STORES_QUALITY', 'EXTERNAL_COORD', 'FINANCE', 'MANAGEMENT', 'SYSTEM_ADMIN'] })
+  employee_role_code!: string;
+  @ApiProperty() employee_is_active!: boolean;
+  @ApiProperty({ description: 'employees.full_name of created_by_id' }) created_by_name!: string;
+  @ApiProperty({ type: 'string', nullable: true }) activated_by_name!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) revoked_by_name!: string | null;
+}
+
+export class Br10EmployeeRow {
+  @ApiProperty({ format: 'uuid' }) id!: string;
+  @ApiProperty() employee_code!: string;
+  @ApiProperty() full_name!: string;
+  @ApiProperty({ enum: ['PURCHASE', 'ENGINEER', 'SALES', 'STORES_QUALITY', 'EXTERNAL_COORD', 'FINANCE', 'MANAGEMENT', 'SYSTEM_ADMIN'] })
+  role_code!: string;
+  @ApiProperty({ type: [String], description: 'R_* role codes whose maps_to_role_code is this employee\'s role_code (the only ones the DB lets you bind)' })
+  bindable_role_codes!: string[];
+}
+
+export class Br10CompanyRow {
+  @ApiProperty({ format: 'uuid' }) id!: string;
+  @ApiProperty({ example: 'BLR' }) entity_code!: string;
+  @ApiProperty() name!: string;
+}
