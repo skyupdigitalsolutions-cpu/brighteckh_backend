@@ -476,6 +476,24 @@ The integrity suite sets these temporarily and restores them afterwards.
 10. Intercompany transfers (11B-07, P-14), reminder cadence (11C-08, P-06), BR-10 sales MIS report: not built.
 11. Number formats `SE/SQ/SO/SOUT-<CODE>-000001` follow the house convention; the doc proposed 7 digits.
 
+**Sales & Supply desk reads (17 Nov 2026, no migration):** `src/modules/purchase-desk/sales-supply-desk.*`. Tests:
+`test/br11.e2e-spec.ts` (assertions at each flow stage + a guard test). Additive: `GET /sales-enquiries` / `GET /sales-orders`
+(raw rows) are unchanged. Roles SALES / PURCHASE / FINANCE / MANAGEMENT; company from the token; purchase-desk
+conventions (`page`, `page_size` <= 100, csv filter, `search`, unknown params 400, `counts_by_*` under `search` only).
+Never joins sourcing authorisations / supplier offers / SALES_ORDER PO prices. Money = paise bigint strings.
+- `GET /sales-supply/enquiries`: + customer name / code, sales owner name, line / quote counts, latest quote. Filter `status`.
+- `GET /sales-supply/quotes`: one row per SQ quotation, LATEST revision: status, validity, line count, `total_paise` (sum of
+  line_total_paise), released / last sent (+ channel) / latest response, revisions + SO counts, `last_activity_at`.
+  `stage` (derived, not stored, filter + counts): DRAFT -> TO_PRICE; CANCELLED -> CANCELLED; ISSUED + newest response
+  ACCEPTED / PART_ACCEPTED / REJECTED -> same; any other response (ENQUIRY / NEGOTIATING / NO_RESPONSE) or a dispatch event ->
+  WITH_CUSTOMER; else ISSUED. Ordered by last activity desc.
+- `GET /sales-supply/orders`: + customer, quote no. / revision, `order_total_paise` (sum round(accepted_qty x unit price)),
+  line pipeline counts from `br11_v_sales_order_lines` (`lines_reserved` = reserved + shipped >= accepted, `lines_shipped`,
+  `lines_delivered` = outstanding <= 0, `lines_invoiced`), pending authorisations, payment terms recorded / advance kind /
+  `advance_cleared` (NOT_REQUIRED or Finance-confirmed), open change requests, live outward count.
+- `GET /sales-supply/outwards`: + customer, line counts (picked = past DRAFT, with packing evidence, DELIVERED), latest
+  tracking note, the Sales Orders on it. Search includes SO number and tracking reference.
+
 ## 4i. Frontend lookups + uploads — migrations 022/023, src/modules/uploads (+ BR-02/BR-03/Masters reads)
 
 Additive read endpoints for gaps found building the Engineer UI (12 Nov 2026). No existing table changed;

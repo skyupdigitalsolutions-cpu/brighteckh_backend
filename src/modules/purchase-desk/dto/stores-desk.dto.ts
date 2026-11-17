@@ -17,7 +17,7 @@ export const GRN_RECEIVABLE_STATUSES = ['ACKNOWLEDGED', 'SHIPPED'];
 export const GRN_STATUSES = ['OPEN', 'PARTIAL', 'POSTED'] as const;
 export type GrnStatus = (typeof GRN_STATUSES)[number];
 
-const csvArray = (allowed: readonly string[]) => [
+export const csvArray = (allowed: readonly string[]) => [
   IsOptional(),
   Transform(({ value }) => {
     if (value === undefined || value === null) return undefined;
@@ -26,7 +26,7 @@ const csvArray = (allowed: readonly string[]) => [
   }),
   IsArray(), ArrayMaxSize(allowed.length), IsIn(allowed as unknown as string[], { each: true }),
 ];
-const apply = (decorators: PropertyDecorator[]): PropertyDecorator => (target, key) => decorators.forEach((d) => d(target, key));
+export const apply = (decorators: PropertyDecorator[]): PropertyDecorator => (target, key) => decorators.forEach((d) => d(target, key));
 
 export class ReceivablePoQueryDto extends PageQueryDto {
   @ApiPropertyOptional({

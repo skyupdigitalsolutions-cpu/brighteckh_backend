@@ -25,6 +25,13 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
   let savedGst: any[] = [];
   let jobsBefore = 0;
   const P = () => f.purchase;
+  /** GET /sales-supply/<list>?<qs> as `actor` (default Purchase). */
+  const desk = async (list: string, qs: string, actor = f.purchase) => ok(await api('get', `/sales-supply/${list}?${qs}`, actor));
+  const deskRow = async (list: string, search: string, actor = f.purchase) => {
+    const page = await desk(list, `search=${encodeURIComponent(search)}`, actor);
+    expect(page.total).toBe(1);
+    return page.rows[0];
+  };
   const S = () => f.sales;
   const F = () => f.finance;
   const PRICE = 125000;
@@ -100,6 +107,11 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       expect(s.enq.enquiry_number).toMatch(/^SE-BLR-\d{6}$/);
       expect(s.enq.status).toBe('RECEIVED');
       expect(s.enq.lines).toHaveLength(1);
+      // Sales & Supply desk: enriched enquiry row, customer name for every desk role (Finance included).
+      const row = await deskRow('enquiries', s.enq.enquiry_number, F());
+      expect(row).toMatchObject({ id: s.enq.id, status: 'RECEIVED', customer_id: f.customerId, line_count: 1, quote_count: 0, latest_quote_id: null });
+      expect(row.customer_name).toBe(`IT Customer ${RUN}`);
+      expect(row).toHaveProperty('sales_owner_name');
     });
 
     it('only PURCHASE prices a quote (SALES 403); quote numbered SQ-<CODE>-000001, separate from the BR-04 QT series', async () => {
@@ -112,6 +124,12 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       const enq = ok(await api('get', `/sales-enquiries/${s.enq.id}`, S()));
       expect(enq.status).toBe('QUOTED');
       fails(await api('post', `/sales-quote-revisions/${s.rev0.id}/lines`, S(), line(s.item)), 403);
+      const q = await deskRow('quotes', s.quote.quote_number);
+      expect(q).toMatchObject({
+        quote_id: s.quote.id, stage: 'TO_PRICE', revision_no: 0, revision_status: 'DRAFT', revisions_count: 1, line_count: 0,
+        total_paise: '0', enquiry_number: s.enq.enquiry_number, last_sent_at: null, latest_response_kind: null, sales_order_count: 0,
+      });
+      expect(await deskRow('enquiries', s.enq.enquiry_number)).toMatchObject({ status: 'QUOTED', quote_count: 1, latest_quote_id: s.quote.id });
     });
 
     it('A02: an unapproved Item Master item blocks quotation issue', async () => {
@@ -144,9 +162,32 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
     });
 
     it('SALES sends the issued quote and records the response (Purchase cannot)', async () => {
+      // Desk stage follows the LATEST revision: rev 1 issued, not yet sent -> ISSUED, with rev 1's total.
+      expect(await deskRow('quotes', s.quote.quote_number, S())).toMatchObject({
+        stage: 'ISSUED', revision_no: 1, revision_status: 'ISSUED', revisions_count: 2, line_count: 1, total_paise: String(6 * PRICE),
+      });
       fails(await api('post', `/sales-quote-revisions/${s.rev1.id}/dispatch`, P(), { channel: 'EMAIL', recipient: 'buyer@it.example' }), 403);
       ok(await api('post', `/sales-quote-revisions/${s.rev1.id}/dispatch`, S(), { channel: 'EMAIL', recipient: 'buyer@it.example' }));
+      expect(await deskRow('quotes', s.quote.quote_number)).toMatchObject({ stage: 'WITH_CUSTOMER', last_sent_channel: 'EMAIL' });
       ok(await api('post', `/sales-quote-revisions/${s.rev1.id}/responses`, S(), { response_kind: 'ACCEPTED' }));
+      const accepted = await desk('quotes', `stage=ACCEPTED&search=${encodeURIComponent(s.quote.quote_number)}`);
+      expect(accepted.rows.map((r: any) => r.quote_id)).toEqual([s.quote.id]);
+      expect(accepted.rows[0]).toMatchObject({ latest_response_kind: 'ACCEPTED' });
+      expect((await desk('quotes', `stage=TO_PRICE&search=${encodeURIComponent(s.quote.quote_number)}`)).total).toBe(0);
+    });
+
+    it('Sales & Supply desk: desk roles only, company-scoped, filters validated, no supplier cost anywhere', async () => {
+      for (const list of ['enquiries', 'quotes', 'orders', 'outwards']) {
+        fails(await api('get', `/sales-supply/${list}`, f.stores), 403);
+        fails(await api('get', `/sales-supply/${list}`, f.engineer), 403);
+        const other = ok(await api('get', `/sales-supply/${list}?page_size=100&search=${encodeURIComponent(RUN)}`, s.bPurchase));
+        expect(other.total).toBe(0);
+      }
+      fails(await api('get', '/sales-supply/quotes?stage=SENT', P()), 400);
+      fails(await api('get', '/sales-supply/orders?status=OPEN', P()), 400);
+      fails(await api('get', '/sales-supply/orders?page_size=101', P()), 400);
+      const body = JSON.stringify(await desk('quotes', `search=${encodeURIComponent(s.quote.quote_number)}`));
+      expect(body).not.toMatch(/quoted_unit_price|supplier|cost/);
     });
 
     it('A04: another company cannot read the quote', async () => {
@@ -201,6 +242,16 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       const t = ok(await api('post', `/sales-orders/${s.so.id}/payment-terms/confirm-advance`, F(), {
         br08_receipt_id: s.advanceReceipt.id, finance_confirmation_reference: `bank stmt ${RUN}` }));
       expect(t.finance_confirmed_at).toBeTruthy();
+      const o = await deskRow('orders', `PO-${RUN}`, F());
+      expect(o).toMatchObject({
+        id: s.so.id, status: 'VERIFIED', quote_id: s.quote.id, quote_number: s.quote.quote_number, quote_revision_no: 1,
+        customer_order_reference: `PO-${RUN}`, order_total_paise: String(6 * PRICE), lines_total: 1, lines_reserved: 0,
+        lines_shipped: 0, lines_delivered: 0, lines_invoiced: 0, pending_authorisations: 0, payment_terms_recorded: true,
+        advance_kind: 'FIXED_AMOUNT', advance_cleared: true, open_change_requests: 0, outward_count: 0,
+      });
+      expect(o.sales_order_number).toMatch(/^SO-BLR-\d{6}$/);
+      s.soNumber = o.sales_order_number;
+      expect((await deskRow('quotes', s.quote.quote_number)).sales_order_count).toBe(1);
     });
   });
 
@@ -296,6 +347,11 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       ok(await api('post', `/sales-outward-lines/${s.oline1}/pick`, P(), { verification_note: 'part no + qty 4 checked' }));
       fails(await api('post', `/sales-outwards/${s.out1.id}/dispatch`, P(), {}), 400, /PHOTO/);
       expect((await balances(f.companyId, s.item, P())).main).toBe(6);
+      const draft = (await desk('outwards', `status=DRAFT&search=${encodeURIComponent(s.soNumber)}`)).rows.find((r: any) => r.id === s.out1.id);
+      expect(draft).toMatchObject({
+        status: 'DRAFT', outward_number: null, carrier_name: 'IT Courier', lines_total: 1, lines_picked: 1,
+        lines_with_packing_evidence: 0, lines_delivered: 0, sales_orders: [{ sales_order_id: s.so.id, sales_order_number: s.soNumber }],
+      });
     });
 
     it('C03: dispatch posts a ledger ISSUE out of MAIN, consumes the reservation (no double count), numbers SOUT-<CODE>-000001', async () => {
@@ -311,6 +367,10 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       expect(j).toMatchObject({ movement_type: 'ISSUE', reference_kind: 'BR11_SALE_ISSUE', reference_id: s.oline1, to_location_id: null });
       const led = (await c.query(`SELECT status FROM fdn_inventory_reservations WHERE id=$1`, [s.resA.ledger_reservation_id])).rows[0];
       expect(led.status).toBe('CONSUMED');
+      expect(await deskRow('outwards', d.outward_number, S())).toMatchObject({
+        id: s.out1.id, status: 'DISPATCHED', tracking_reference: `AWB-${RUN}`, lines_with_packing_evidence: 1, customer_name: `IT Customer ${RUN}`,
+      });
+      expect(await deskRow('orders', s.soNumber)).toMatchObject({ lines_reserved: 1, lines_shipped: 0, outward_count: 1 });
     });
 
     it('C02: a reservation ships once; a dispatched batch is immutable', async () => {
@@ -440,6 +500,11 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       expect(closed.status).toBe('CLOSED');
       expect(closed.closure_review).toMatchObject({ delivery_verified: true, billing_verified: true, payment_required: true, payment_verified: true });
       expect(closed.closure_review.finance_evidence).toHaveLength(2);
+      expect(await deskRow('orders', s.soNumber, F())).toMatchObject({
+        status: 'CLOSED', lines_reserved: 1, lines_shipped: 1, lines_delivered: 1, lines_invoiced: 1, outward_count: 2,
+      });
+      const counts = (await desk('orders', `search=${encodeURIComponent(s.soNumber)}`)).counts_by_status;
+      expect(counts).toEqual({ DRAFT: 0, VERIFIED: 0, PART_DELIVERED: 0, DELIVERED: 0, CANCELLED: 0, CLOSED: 1 });
       expect(await dbRejects(c, `UPDATE br11_sales_orders SET status='DELIVERED' WHERE id=$1`, [s.so.id])).toMatch(/CLOSED Sales Order cannot change/);
     });
   });

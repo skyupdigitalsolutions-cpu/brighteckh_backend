@@ -57,6 +57,7 @@ async function bootstrap() {
       .addTag('Lookups', 'Picker lookups (customers, engineers, employees, assemblies, custody locations, item bridge): names instead of typed ids')
       .addTag('Purchase overview', 'P0 overview cards for Purchase / Management (raw counts, company-scoped)')
       .addTag('Stores desk', 'Stores / Quality receiving reads: POs to receive, PO lines (no prices), GRN register + detail with photos and ledger movements')
+      .addTag('Sales & Supply desk', 'BR-11 product-sales lists: enquiries, quotation worklist (derived stage), Sales Orders, outwards. Read-only, no supplier cost')
       .addTag('Health')
       .build();
     SwaggerModule.setup('api/docs', app, tidyHeaderParams(SwaggerModule.createDocument(app, cfg)));
