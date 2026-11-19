@@ -123,3 +123,24 @@ export class SalesInvoicePreview extends InvoicePreview {
 export class SalesInvoiceSource extends Br08SalesInvoiceSourcesRow {
   @ApiProperty() sales_order_number!: string;
 }
+
+// ---------------------------------------------------------------- GET /payments (receipt list)
+
+export class PaymentReceiptListRow extends Br08PaymentReceiptsRow {
+  @ApiProperty() customer_name!: string;
+  @ApiProperty() customer_code!: string;
+  @ApiProperty({ type: 'string', nullable: true, description: 'employees.full_name of recorded_by_id' }) recorded_by_name!: string | null;
+  @ApiProperty({ type: 'string', format: 'int64', description: 'amount_paise - allocated_paise (not yet allocated to invoices)' })
+  unallocated_paise!: string;
+  @ApiProperty({ type: 'string', format: 'int64', description: 'sum of BR-11 advances (required_amount_paise) already confirmed against this receipt' })
+  advance_backed_paise!: string;
+  @ApiProperty({ type: 'string', format: 'int64', description: 'amount_paise - advance_backed_paise: what a further BR-11 advance confirmation can still count (br11_guard_payment_condition rule)' })
+  available_for_advance_paise!: string;
+}
+
+export class PaymentReceiptListPage {
+  @ApiProperty({ type: [PaymentReceiptListRow], description: 'received_on descending, newest recorded first' }) rows!: PaymentReceiptListRow[];
+  @ApiProperty({ type: 'integer' }) total!: number;
+  @ApiProperty({ type: 'integer' }) page!: number;
+  @ApiProperty({ type: 'integer' }) page_size!: number;
+}

@@ -3,9 +3,10 @@ import {
 } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { PgService } from '../../common/database/pg.service';
+import { likeTerm } from '../purchase-desk/purchase-desk.service';
 import {
   AllocatePaymentDto, CreateDispatchBatchDto, CreditNoteDto, DispatchBatchDto, EntityProfileDto,
-  InvoiceRequestDto, ListInvoicesQueryDto, ProofOfDeliveryDto, RecordPaymentDto, SalesInvoiceRequestDto, WaiverDto,
+  InvoiceRequestDto, ListInvoicesQueryDto, ListReceiptsQueryDto, ProofOfDeliveryDto, RecordPaymentDto, SalesInvoiceRequestDto, WaiverDto,
 } from './dto/br08.dto';
 
 interface Actor { id: string; role: string; companyId: string }
@@ -249,6 +250,38 @@ export class Br08Service {
   async printInvoice(invoiceId: string, actor: Actor) {
     const document = await this.getInvoice(invoiceId, actor);
     return { copies: [...INVOICE_COPIES], document };
+  }
+
+  /**
+   * GET /payments: receipts of the caller's company (optionally one customer), with what is still unallocated and how
+   * much BR-11 advance coverage remains (same arithmetic as br11_guard_payment_condition: amount - confirmed advances).
+   */
+  async listReceipts(q: ListReceiptsQueryDto, actor: Actor) {
+    const pageSize = q.page_size ?? 25;
+    const page = q.page ?? 1;
+    const term = likeTerm(q.search);
+    const where = `r.company_id = $1 AND ($2::uuid IS NULL OR r.customer_id = $2)
+      AND ($3::text IS NULL OR r.payment_reference ILIKE $3 OR c.customer_name ILIKE $3 OR c.customer_code ILIKE $3
+           OR r.payment_mode ILIKE $3)`;
+    const params = [actor.companyId, q.customer_id ?? null, term];
+    const [total, rows] = await Promise.all([
+      this.pg.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM br08_payment_receipts r JOIN customers c ON c.id = r.customer_id WHERE ${where}`, params),
+      this.pg.query(`
+        SELECT r.*, c.customer_name, c.customer_code, rb.full_name AS recorded_by_name,
+               (r.amount_paise - r.allocated_paise)::text AS unallocated_paise,
+               adv.used::text AS advance_backed_paise,
+               (r.amount_paise - adv.used)::text AS available_for_advance_paise
+          FROM br08_payment_receipts r
+          JOIN customers c ON c.id = r.customer_id
+          LEFT JOIN employees rb ON rb.id = r.recorded_by_id
+          JOIN LATERAL (SELECT COALESCE(sum(pc.required_amount_paise), 0)::bigint AS used
+                          FROM br11_order_payment_conditions pc WHERE pc.br08_receipt_id = r.id) adv ON true
+         WHERE ${where}
+         ORDER BY r.received_on DESC, r.recorded_at DESC, r.id
+         LIMIT $4 OFFSET $5`, [...params, pageSize, (page - 1) * pageSize]),
+    ]);
+    return { rows: rows.rows, total: total.rows[0].n, page, page_size: pageSize };
   }
 
   async listInvoices(q: ListInvoicesQueryDto, actor: Actor) {

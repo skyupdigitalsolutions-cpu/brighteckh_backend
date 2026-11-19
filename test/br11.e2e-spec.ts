@@ -235,13 +235,37 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       fails(await api('post', `/sales-order-lines/${s.sol}/reservations`, P(), { qty: 2 }, { 'Idempotency-Key': idem() }),
         400, /require an advance/);
 
+      // Finance advances queue: the order's recorded terms need an advance Finance hasn't confirmed yet.
+      const pending = await desk('orders', `advance_pending=true&search=${encodeURIComponent(`PO-${RUN}`)}`, F());
+      expect(pending.rows.map((r: any) => r.id)).toEqual([s.so.id]);
+      expect(pending.rows[0]).toMatchObject({
+        advance_kind: 'FIXED_AMOUNT', advance_required_amount_paise: '50000', advance_required_percent: null, advance_cleared: false,
+        advance_confirmed_at: null,
+      });
+      expect(pending.rows[0].payment_terms_recorded_at).toBeTruthy();
+      expect(pending.rows[0].payment_terms_recorded_by_name).toBeTruthy();
+      expect((await desk('orders', `advance_pending=false&search=${encodeURIComponent(`PO-${RUN}`)}`, F())).total).toBe(0);
+      fails(await api('get', '/sales-supply/orders?advance_pending=maybe', F()), 400);
+
       s.advanceReceipt = ok(await api('post', '/payments', F(), {
         customer_id: f.customerId, amount_paise: 50000, received_on: s.today, payment_mode: 'NEFT', payment_reference: `ADV-${RUN}` }));
+      // Receipt list (the advance picker): full coverage available before any confirmation; Finance / Management only.
+      fails(await api('get', `/payments?customer_id=${f.customerId}`, P()), 403);
+      fails(await api('get', `/payments?customer_id=${f.customerId}`, S()), 403);
+      const before = ok(await api('get', `/payments?customer_id=${f.customerId}&search=${encodeURIComponent(`ADV-${RUN}`)}`, F()));
+      expect(before.rows).toHaveLength(1);
+      expect(before.rows[0]).toMatchObject({
+        id: s.advanceReceipt.id, amount_paise: '50000', unallocated_paise: '50000', advance_backed_paise: '0',
+        available_for_advance_paise: '50000', customer_name: `IT Customer ${RUN}`,
+      });
       fails(await api('post', `/sales-orders/${s.so.id}/payment-terms/confirm-advance`, P(), {
         br08_receipt_id: s.advanceReceipt.id, finance_confirmation_reference: 'bank stmt' }), 403);
       const t = ok(await api('post', `/sales-orders/${s.so.id}/payment-terms/confirm-advance`, F(), {
         br08_receipt_id: s.advanceReceipt.id, finance_confirmation_reference: `bank stmt ${RUN}` }));
       expect(t.finance_confirmed_at).toBeTruthy();
+      const after = ok(await api('get', `/payments?customer_id=${f.customerId}&search=${encodeURIComponent(`ADV-${RUN}`)}`, F()));
+      expect(after.rows[0]).toMatchObject({ advance_backed_paise: '50000', available_for_advance_paise: '0', unallocated_paise: '50000' });
+      expect((await desk('orders', `advance_pending=true&search=${encodeURIComponent(`PO-${RUN}`)}`, F())).total).toBe(0);
       const o = await deskRow('orders', `PO-${RUN}`, F());
       expect(o).toMatchObject({
         id: s.so.id, status: 'VERIFIED', quote_id: s.quote.id, quote_number: s.quote.quote_number, quote_revision_no: 1,
@@ -396,10 +420,20 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
   describe('BR-08 PRODUCT_SALES invoice (same series, no repair Job ID)', () => {
     it('C08: invoicing is BLOCKED while the trigger (11C-07) and product GST rate (P-12) are unconfigured; config is SYSTEM_ADMIN only', async () => {
       fails(await api('post', '/sales-invoices/preview', F(), { sales_order_id: s.so.id }), 400, /CLIENT-UNCONFIRMED.*invoice trigger/);
+      // Invoice queue mirrors the same gate: every row BLOCKED, with the server's reason; Finance / Management only.
+      for (const actor of [P(), S()]) fails(await api('get', '/sales-supply/invoice-queue', actor), 403);
+      const q0 = await desk('invoice-queue', `search=${encodeURIComponent(s.soNumber)}`, F());
+      expect(q0.config).toMatchObject({ invoice_trigger: null, blocked: true });
+      expect(q0.rows).toHaveLength(1);
+      expect(q0.rows[0]).toMatchObject({ sales_order_id: s.so.id, readiness: 'BLOCKED', invoiceable_taxable_paise: '0' });
+      expect(q0.rows[0].blocked_reason).toMatch(/11C-07/);
       fails(await api('put', '/sales-config/policy', P(), { invoice_trigger: 'DELIVERY' }), 403);
       // test-only assignment (restored in afterAll) -- NOT a decision about the trigger
       ok(await api('put', '/sales-config/policy', f.admin, { invoice_trigger: 'DELIVERY', note: `integrity ${RUN}` }));
       fails(await api('post', '/sales-invoices/preview', F(), { sales_order_id: s.so.id }), 400, /PRODUCT_SALE GST rate/);
+      const q1 = await desk('invoice-queue', `search=${encodeURIComponent(s.soNumber)}`, F());
+      expect(q1.config).toMatchObject({ invoice_trigger: 'DELIVERY', product_gst_rate_configured: false, blocked: true });
+      expect(q1.rows[0].blocked_reason).toMatch(/P-12/);
       await c.query(`INSERT INTO br08_gst_rate_config(quote_line_type,hsn_sac,cgst_rate,sgst_rate,igst_rate) VALUES ('PRODUCT_SALE','8532',9,9,18)`);
       const cfg = ok(await api('get', '/sales-config', S()));
       expect(cfg.blocked).toEqual({ product_invoicing: false, order_closure: true });
@@ -407,6 +441,17 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
 
     it('invoiceable = POD-delivered under DELIVERY; GST server-derived; Finance only', async () => {
       const pv = ok(await api('post', '/sales-invoices/preview', F(), { sales_order_id: s.so.id }));
+      // The queue agrees with the preview: 4 delivered of 6 -> READY for 4 x PRICE, triggered by the SOUT's POD.
+      const ready = await desk('invoice-queue', `readiness=READY&search=${encodeURIComponent(s.soNumber)}`, F());
+      expect(ready.config).toMatchObject({ invoice_trigger: 'DELIVERY', product_gst_rate_configured: true, blocked: false });
+      expect(ready.rows).toHaveLength(1);
+      expect(ready.rows[0]).toMatchObject({
+        sales_order_id: s.so.id, readiness: 'READY', blocked_reason: null, tax_regime: pv.tax_regime,
+        invoiceable_taxable_paise: String(4 * PRICE), uninvoiced_taxable_paise: String(6 * PRICE), lines_total: 1,
+        lines_invoiceable: 1, invoices_count: 0, trigger_event_kind: 'DELIVERED',
+      });
+      expect(ready.rows[0].trigger_event_ref).toMatch(/^SOUT-BLR-\d{6}$/);
+      expect(Number(ready.rows[0].invoiceable_taxable_paise)).toBe(Number(pv.sub_total_paise));
       expect(pv).toMatchObject({ invoice_type: 'PRODUCT_SALES', tax_regime: 'INTRA_STATE', sub_total_paise: 4 * PRICE,
         cgst_paise: 45000, sgst_paise: 45000, igst_paise: 0, total_paise: 590000, jobs: [] });
       expect(pv.lines[0]).toMatchObject({ hsn_sac: '8532', quantity: 4 });
@@ -425,6 +470,12 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       const again = ok(await api('post', '/sales-invoices', F(), { sales_order_id: s.so.id }, { 'Idempotency-Key': key }));
       expect(again.id).toBe(s.inv1.id);
       fails(await api('post', '/sales-invoices', F(), { sales_order_id: s.so.id }, { 'Idempotency-Key': idem() }), 400, /nothing to invoice/);
+      // Remaining 2 not delivered yet -> WAITING with the un-invoiced value; counts reflect it.
+      const waiting = await desk('invoice-queue', `search=${encodeURIComponent(s.soNumber)}`, F());
+      expect(waiting.rows[0]).toMatchObject({
+        readiness: 'WAITING', invoiceable_taxable_paise: '0', uninvoiced_taxable_paise: String(2 * PRICE), invoices_count: 1,
+      });
+      expect(waiting.counts_by_readiness).toEqual({ READY: 0, WAITING: 1, BLOCKED: 0 });
       // the INV counter is BR-08's: the latest number for this FY is this invoice
       const ctr = (await c.query(`SELECT last_value FROM br08_fy_counters WHERE company_id=$1 AND doc_kind='INV' AND fiscal_year=$2`,
         [f.companyId, s.inv1.fiscal_year])).rows[0];

@@ -3,8 +3,8 @@ import { PgService } from '../../common/database/pg.service';
 import { Actor, likeTerm, paging } from './purchase-desk.service';
 import { PageQueryDto } from './dto/purchase-desk.dto';
 import {
-  ENQUIRY_STATUSES, ORDER_STATUSES, OUTWARD_STATUSES, QUOTE_STAGES, SupplyEnquiryQueryDto, SupplyOrderQueryDto,
-  SupplyOutwardQueryDto, SupplyQuoteQueryDto,
+  ENQUIRY_STATUSES, INVOICE_READINESS, InvoiceQueueQueryDto, ORDER_STATUSES, OUTWARD_STATUSES, QUOTE_STAGES,
+  SupplyEnquiryQueryDto, SupplyOrderQueryDto, SupplyOutwardQueryDto, SupplyQuoteQueryDto,
 } from './dto/sales-supply-desk.dto';
 
 /**
@@ -28,20 +28,21 @@ export class SalesSupplyDeskService {
   constructor(private readonly pg: PgService) {}
 
   /**
-   * Run a paged list over `baseSql` (a CTE body selecting a `bucket` column = status / stage). $1 company, $2 search;
-   * the bucket filter is $3, limit $4, offset $5.
+   * Run a paged list over `baseSql` (a CTE body selecting a `bucket` column = status / stage). $1 company, $2 search,
+   * then `extra` as $3.. ; the bucket filter, limit and offset follow the extras.
    */
   private async page(baseSql: string, q: PageQueryDto, buckets: readonly string[], selected: string[] | undefined,
-    order: string, countsKey: string, actor: Actor) {
+    order: string, countsKey: string, actor: Actor, extra: unknown[] = []) {
     const { page, pageSize, offset } = paging(q);
     const base = `WITH base AS (${baseSql})`;
-    const baseParams = [actor.companyId, likeTerm(q.search)];
-    const filtered = `${base} SELECT * FROM base WHERE ($3::text[] IS NULL OR bucket = ANY($3))`;
+    const baseParams = [actor.companyId, likeTerm(q.search), ...extra];
+    const b = baseParams.length + 1;
+    const filtered = `${base} SELECT * FROM base WHERE ($${b}::text[] IS NULL OR bucket = ANY($${b}))`;
     const params = [...baseParams, selected?.length ? selected : null];
     const [counts, total, rows] = await Promise.all([
       this.pg.query<{ bucket: string; n: number }>(`${base} SELECT bucket, count(*)::int AS n FROM base GROUP BY bucket`, baseParams),
       this.pg.query<{ n: number }>(`SELECT count(*)::int AS n FROM (${filtered}) f`, params),
-      this.pg.query(`${filtered} ORDER BY ${order} LIMIT $4 OFFSET $5`, [...params, pageSize, offset]),
+      this.pg.query(`${filtered} ORDER BY ${order} LIMIT $${b + 1} OFFSET $${b + 2}`, [...params, pageSize, offset]),
     ]);
     const byBucket = Object.fromEntries(buckets.map((b) => [b, 0])) as Record<string, number>;
     for (const r of counts.rows) byBucket[r.bucket] = r.n;
@@ -116,6 +117,9 @@ export class SalesSupplyDeskService {
                WHERE a.sales_order_id = o.id AND a.verified_status = 'PENDING') AS pending_authorisations,
              (pc.id IS NOT NULL) AS payment_terms_recorded, pc.advance_kind,
              (pc.advance_kind = 'NOT_REQUIRED' OR pc.finance_confirmed_at IS NOT NULL) IS TRUE AS advance_cleared,
+             pc.required_amount_paise::text AS advance_required_amount_paise, pc.required_percent::text AS advance_required_percent,
+             pc.recorded_at AS payment_terms_recorded_at, prb.full_name AS payment_terms_recorded_by_name,
+             pc.finance_confirmed_at AS advance_confirmed_at,
              (SELECT count(*)::int FROM br11_sales_change_requests cr
                WHERE cr.sales_order_id = o.id AND cr.decision = 'PENDING') AS open_change_requests,
              (SELECT count(DISTINCT ob.id)::int FROM br11_outward_lines ol
@@ -129,6 +133,7 @@ export class SalesSupplyDeskService {
         JOIN br11_quote_revisions qr ON qr.id = o.quote_revision_id
         LEFT JOIN LATERAL (SELECT * FROM br11_order_payment_conditions p WHERE p.sales_order_id = o.id
                             ORDER BY p.recorded_at DESC, p.id DESC LIMIT 1) pc ON true
+        LEFT JOIN employees prb ON prb.id = pc.recorded_by_id
         JOIN LATERAL (
           SELECT COALESCE(sum(round(v.accepted_qty * v.unit_price_paise)), 0)::bigint AS order_total_paise,
                  count(*)::int AS lines_total,
@@ -139,8 +144,94 @@ export class SalesSupplyDeskService {
             FROM br11_v_sales_order_lines v WHERE v.sales_order_id = o.id) ln ON true
        WHERE o.company_id = $1
          AND ($2::text IS NULL OR o.sales_order_number ILIKE $2 OR c.customer_name ILIKE $2 OR c.customer_code ILIKE $2
-              OR sq.quote_number ILIKE $2 OR o.customer_order_reference ILIKE $2)`,
-    q, ORDER_STATUSES, q.status, 'created_at DESC, id DESC', 'counts_by_status', actor);
+              OR sq.quote_number ILIKE $2 OR o.customer_order_reference ILIKE $2)
+         AND ($3::boolean IS NULL
+              OR (pc.advance_kind IS NOT NULL AND pc.advance_kind <> 'NOT_REQUIRED' AND pc.finance_confirmed_at IS NULL) = $3)`,
+    q, ORDER_STATUSES, q.status, 'created_at DESC, id DESC', 'counts_by_status', actor, [q.advance_pending ?? null]);
+  }
+
+  /**
+   * GET /sales-supply/invoice-queue (Finance). Orders a PRODUCT_SALES invoice could be raised for (VERIFIED /
+   * PART_DELIVERED / DELIVERED with value not yet invoiced). Readiness mirrors br08_build_sales_invoice: the same
+   * company-profile / trigger / GST-rate / customer checks, and br11_line_invoiceable_qty - br11_line_invoiced_qty per line.
+   * Item-level checks (an item no longer APPROVED/ACTIVE) only surface in the preview.
+   */
+  async invoiceQueue(q: InvoiceQueueQueryDto, actor: Actor) {
+    const cfg = (await this.pg.query<{ invoice_trigger: string | null; gst: boolean }>(`
+      SELECT (SELECT invoice_trigger FROM br11_company_policies WHERE company_id = $1) AS invoice_trigger,
+             EXISTS (SELECT 1 FROM br08_gst_rate_config WHERE is_active AND quote_line_type = 'PRODUCT_SALE') AS gst`,
+    [actor.companyId])).rows[0];
+    const trigger = cfg.invoice_trigger;
+    const usable = trigger === 'ADVANCE' || trigger === 'DISPATCH' || trigger === 'DELIVERY';
+    const configBlock = !trigger ? 'CLIENT-UNCONFIRMED: product-sales invoice trigger (11C-07) is not configured'
+      : trigger === 'MILESTONE' ? 'MILESTONE invoicing has no milestone schedule (11C-07): not modelled'
+        : !cfg.gst ? 'CLIENT-UNCONFIRMED: no active PRODUCT_SALE GST rate / HSN (P-12)' : null;
+
+    const result = await this.page(`
+      SELECT y.*, y.readiness AS bucket FROM (
+      SELECT o.id AS sales_order_id, o.sales_order_number, o.status AS order_status,
+             o.customer_id, c.customer_name, c.customer_code, c.state_code AS customer_state_code,
+             CASE WHEN c.state_code IS NULL OR le.state_code IS NULL THEN NULL
+                  WHEN c.state_code = le.state_code THEN 'INTRA_STATE' ELSE 'INTER_STATE' END AS tax_regime,
+             ln.invoiceable_taxable_paise::text AS invoiceable_taxable_paise,
+             ln.uninvoiced_taxable_paise::text AS uninvoiced_taxable_paise,
+             ln.lines_total, ln.lines_invoiceable,
+             (SELECT count(*)::int FROM br08_sales_invoice_sources si JOIN br08_invoices i ON i.id = si.invoice_id
+               WHERE si.sales_order_id = o.id AND i.invoice_status <> 'CANCELLED') AS invoices_count,
+             ev.kind AS trigger_event_kind, ev.ref AS trigger_event_ref, ev.at AS trigger_event_at,
+             blk.reason AS blocked_reason,
+             CASE WHEN blk.reason IS NOT NULL THEN 'BLOCKED' WHEN ln.lines_invoiceable > 0 THEN 'READY' ELSE 'WAITING' END AS readiness
+        FROM br11_sales_orders o
+        JOIN customers c ON c.id = o.customer_id AND c.company_id = o.company_id
+        JOIN legal_entities le ON le.id = o.company_id
+        JOIN LATERAL (
+          SELECT count(*)::int AS lines_total,
+                 count(*) FILTER (WHERE x.remaining > 0)::int AS lines_invoiceable,
+                 COALESCE(sum(round(x.remaining * x.unit_price_paise)), 0)::bigint AS invoiceable_taxable_paise,
+                 COALESCE(sum(round(GREATEST(x.accepted_qty - x.invoiced, 0) * x.unit_price_paise)), 0)::bigint AS uninvoiced_taxable_paise
+            FROM (SELECT l.unit_price_paise, l.accepted_qty, br11_line_invoiced_qty(l.id) AS invoiced,
+                         GREATEST(CASE WHEN $3::boolean THEN br11_line_invoiceable_qty(l.id) ELSE 0 END
+                                  - br11_line_invoiced_qty(l.id), 0) AS remaining
+                    FROM br11_sales_order_lines l
+                   WHERE l.sales_order_id = o.id AND l.line_status <> 'CANCELLED') x) ln ON true
+        LEFT JOIN LATERAL (
+          SELECT * FROM (
+            SELECT 'ADVANCE_CONFIRMED'::text AS kind, NULL::text AS ref, pc.finance_confirmed_at AS at
+              FROM br11_order_payment_conditions pc
+             WHERE $4::text = 'ADVANCE' AND pc.sales_order_id = o.id AND pc.finance_confirmed_at IS NOT NULL
+            UNION ALL
+            SELECT 'DISPATCHED', b.outward_number, b.dispatched_at
+              FROM br11_outward_batches b
+             WHERE $4::text = 'DISPATCH' AND b.status = 'DISPATCHED'
+               AND EXISTS (SELECT 1 FROM br11_outward_lines ol JOIN br11_sales_order_lines sl ON sl.id = ol.sales_order_line_id
+                            WHERE ol.outward_batch_id = b.id AND sl.sales_order_id = o.id)
+            UNION ALL
+            SELECT 'DELIVERED', b.outward_number, de.delivered_at
+              FROM br11_delivery_evidence de
+              JOIN br11_outward_lines ol ON ol.id = de.outward_line_id
+              JOIN br11_outward_batches b ON b.id = ol.outward_batch_id
+              JOIN br11_sales_order_lines sl ON sl.id = ol.sales_order_line_id
+             WHERE $4::text = 'DELIVERY' AND de.delivery_status = 'DELIVERED' AND sl.sales_order_id = o.id
+          ) e ORDER BY e.at DESC NULLS LAST LIMIT 1) ev ON true
+        JOIN LATERAL (SELECT COALESCE($5::text,
+            CASE WHEN le.doc_prefix IS NULL OR le.gstin IS NULL OR le.state_code IS NULL OR le.registered_address IS NULL
+                      OR le.bank_name IS NULL OR le.bank_account_no IS NULL OR le.bank_ifsc IS NULL
+                   THEN 'company invoicing profile incomplete (prefix, GSTIN, state, address, bank name / account / IFSC)'
+                 WHEN c.status <> 'APPROVED' THEN 'customer is ' || c.status || ': an invoice needs an APPROVED customer'
+                 WHEN c.gstin IS NULL OR c.state_code IS NULL THEN 'customer GSTIN and state are required for a tax invoice'
+            END) AS reason) blk ON true
+       WHERE o.company_id = $1 AND o.status IN ('VERIFIED', 'PART_DELIVERED', 'DELIVERED')
+         AND ln.uninvoiced_taxable_paise > 0
+         AND ($2::text IS NULL OR o.sales_order_number ILIKE $2 OR c.customer_name ILIKE $2 OR c.customer_code ILIKE $2)
+      ) y`,
+    q, INVOICE_READINESS, q.readiness,
+    `CASE bucket WHEN 'READY' THEN 0 WHEN 'WAITING' THEN 1 ELSE 2 END, trigger_event_at DESC NULLS LAST, sales_order_number`,
+    'counts_by_readiness', actor, [usable && !configBlock, trigger, configBlock]);
+
+    return {
+      ...result,
+      config: { invoice_trigger: trigger, product_gst_rate_configured: cfg.gst, blocked: configBlock !== null },
+    };
   }
 
   /** GET /sales-supply/outwards */

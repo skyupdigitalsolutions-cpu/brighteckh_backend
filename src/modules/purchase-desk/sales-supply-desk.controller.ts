@@ -8,7 +8,7 @@ import { CurrentActor } from '../../common/auth/current-actor.decorator';
 import { Actor } from './purchase-desk.service';
 import { SalesSupplyDeskService } from './sales-supply-desk.service';
 import {
-  SupplyEnquiryPage, SupplyEnquiryQueryDto, SupplyOrderPage, SupplyOrderQueryDto, SupplyOutwardPage, SupplyOutwardQueryDto,
+  InvoiceQueuePage, InvoiceQueueQueryDto, SupplyEnquiryPage, SupplyEnquiryQueryDto, SupplyOrderPage, SupplyOrderQueryDto, SupplyOutwardPage, SupplyOutwardQueryDto,
   SupplyQuotePage, SupplyQuoteQueryDto,
 } from './dto/sales-supply-desk.dto';
 
@@ -50,10 +50,22 @@ export class SalesSupplyDeskController {
   @Roles(...DESK)
   @ApiOperation({
     summary: 'Sales Order list (G-SS3): customer, order total, line pipeline counts, pending authorisations / changes, advance state',
-    description: `${PAGED}Filters: \`status\` (csv), \`search\` (SO no., customer name / code, quote no., customer order ref). Newest first.`,
+    description: `${PAGED}Filters: \`status\` (csv), \`advance_pending\` (true = Finance advances queue), \`search\` (SO no., `
+      + 'customer name / code, quote no., customer order ref). Newest first.',
   })
   @ApiOkResponse({ type: SupplyOrderPage })
   orders(@Query() q: SupplyOrderQueryDto, @CurrentActor() a: Actor) { return this.svc.orders(q, a); }
+
+  @Get('invoice-queue')
+  @Roles(Role.FINANCE, Role.MANAGEMENT)
+  @ApiOperation({
+    summary: 'Product-invoice queue (G-SS5): orders with un-invoiced value, READY / WAITING / BLOCKED under the configured trigger',
+    description: `${PAGED}Filters: \`readiness\` (csv), \`search\` (SO no., customer name / code). \`config\` echoes the trigger and `
+      + 'GST-rate gate. Readiness mirrors br08_build_sales_invoice (same checks, same per-line invoiceable quantity); item-level '
+      + 'checks surface only in POST /sales-invoices/preview. READY first.',
+  })
+  @ApiOkResponse({ type: InvoiceQueuePage })
+  invoiceQueue(@Query() q: InvoiceQueueQueryDto, @CurrentActor() a: Actor) { return this.svc.invoiceQueue(q, a); }
 
   @Get('outwards')
   @Roles(...DESK)

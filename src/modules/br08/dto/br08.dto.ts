@@ -105,3 +105,15 @@ export class SalesInvoiceRequestDto {
   @ApiPropertyOptional({ description: "Payment terms for THIS invoice (days). Defaults to the customer's credit_days." })
   @IsOptional() @IsInt() @Min(0) @Max(3650) credit_days?: number;
 }
+
+/** GET /payments: receipt list (Finance advance picker, receipts register). Purchase-desk paging conventions. */
+export class ListReceiptsQueryDto {
+  @ApiPropertyOptional({ format: 'uuid', description: 'Only this customer (the advance picker passes the customer of the order)' })
+  @IsOptional() @IsUUID() customer_id?: string;
+  @ApiPropertyOptional({ type: 'integer', minimum: 1, default: 1 })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000) page?: number;
+  @ApiPropertyOptional({ type: 'integer', minimum: 1, maximum: 100, default: 25 })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) page_size?: number;
+  @ApiPropertyOptional({ maxLength: 100, description: 'payment_reference, customer name / code, payment mode' })
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+}

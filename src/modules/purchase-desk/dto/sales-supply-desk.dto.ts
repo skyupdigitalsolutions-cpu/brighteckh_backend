@@ -1,4 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsOptional } from 'class-validator';
 import { PageQueryDto } from './purchase-desk.dto';
 import { PageMeta } from './purchase-desk.responses';
 import { apply, csvArray } from './stores-desk.dto';
@@ -37,6 +39,14 @@ export class SupplyQuoteQueryDto extends PageQueryDto {
 }
 export class SupplyOrderQueryDto extends PageQueryDto {
   @apply(statusFilter(ORDER_STATUSES, 'Sales Order status')) status?: string[];
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description: 'true = only orders whose recorded terms require an advance that Finance has not confirmed yet (the Finance '
+      + 'advances queue); false = only orders without such a pending advance. Omitted = all.',
+  })
+  @IsOptional() @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value)) @IsBoolean()
+  advance_pending?: boolean;
 }
 export class SupplyOutwardQueryDto extends PageQueryDto {
   @apply(statusFilter(OUTWARD_STATUSES, 'Outward status')) status?: string[];
@@ -146,6 +156,13 @@ export class SupplyOrderRow extends SupplyCustomer {
   payment_terms_recorded!: boolean;
   @ApiProperty({ type: 'string', nullable: true, enum: ['NOT_REQUIRED', 'FIXED_AMOUNT', 'PERCENTAGE', 'FULL'] }) advance_kind!: string | null;
   @ApiProperty({ description: 'advance_kind NOT_REQUIRED, or Finance confirmed the advance (finance_confirmed_at set)' }) advance_cleared!: boolean;
+  @ApiProperty({ type: 'string', format: 'int64', nullable: true, description: 'required advance (paise); null when NOT_REQUIRED or no terms' })
+  advance_required_amount_paise!: string | null;
+  @ApiProperty({ type: 'string', format: 'decimal', nullable: true, description: 'required_percent (PERCENTAGE terms only)' })
+  advance_required_percent!: string | null;
+  @nullableStr('when Purchase recorded the payment terms', 'date-time') payment_terms_recorded_at!: string | null;
+  @nullableStr('employees.full_name of the recorder') payment_terms_recorded_by_name!: string | null;
+  @nullableStr('when Finance confirmed the advance', 'date-time') advance_confirmed_at!: string | null;
   @int('change requests with decision PENDING') open_change_requests!: number;
   @int('outward batches carrying this order\'s lines, excluding CANCELLED') outward_count!: number;
 }
@@ -196,4 +213,61 @@ export class SupplyOutwardPage extends PageMeta {
   @ApiProperty({ type: [SupplyOutwardRow], description: 'Newest first' }) rows!: SupplyOutwardRow[];
   @ApiProperty({ type: SupplyOutwardStatusCounts, description: 'Per-status totals under `search` only (ignores `status`)' })
   counts_by_status!: SupplyOutwardStatusCounts;
+}
+
+// ---------------------------------------------------------------- product-invoice queue (Finance)
+
+export const INVOICE_READINESS = ['READY', 'WAITING', 'BLOCKED'] as const;
+const READINESS_DOC =
+  'READY = at least one line has invoiceable quantity left under the configured trigger (br11_line_invoiceable_qty - '
+  + 'br11_line_invoiced_qty > 0). WAITING = nothing invoiceable yet (e.g. not dispatched / delivered). BLOCKED = the server would '
+  + 'refuse an invoice now: trigger unset or MILESTONE, no active PRODUCT_SALE GST rate, customer not APPROVED, or customer '
+  + 'GSTIN / state missing (blocked_reason says which).';
+
+export class InvoiceQueueQueryDto extends PageQueryDto {
+  @apply([
+    ApiPropertyOptional({ type: String, description: `Readiness (comma-separated; ${INVOICE_READINESS.join(', ')}). ${READINESS_DOC}` }),
+    apply(csvArray(INVOICE_READINESS)),
+  ]) readiness?: string[];
+}
+
+export class InvoiceQueueConfig {
+  @ApiProperty({ type: 'string', nullable: true, enum: ['ADVANCE', 'DISPATCH', 'DELIVERY', 'MILESTONE'], description: 'br11_company_policies.invoice_trigger (CLIENT-UNCONFIRMED)' })
+  invoice_trigger!: string | null;
+  @ApiProperty({ description: 'an active br08_gst_rate_config row with quote_line_type PRODUCT_SALE exists (P-12)' })
+  product_gst_rate_configured!: boolean;
+  @ApiProperty({ description: 'true while either is missing (or the trigger is MILESTONE): every row is BLOCKED' }) blocked!: boolean;
+}
+
+export class InvoiceQueueRow extends SupplyCustomer {
+  @ApiProperty({ format: 'uuid' }) sales_order_id!: string;
+  @ApiProperty() sales_order_number!: string;
+  @ApiProperty({ enum: ['VERIFIED', 'PART_DELIVERED', 'DELIVERED'] }) order_status!: string;
+  @nullableStr('customers.state_code') customer_state_code!: string | null;
+  @ApiProperty({ type: 'string', nullable: true, enum: ['INTRA_STATE', 'INTER_STATE'], description: 'customer state vs company state; null if either is missing' })
+  tax_regime!: string | null;
+  @paise('Taxable value invoiceable under the trigger: sum of round(remaining invoiceable qty x unit price). 0 when the config gate is closed; for a customer- or profile-BLOCKED row it is what becomes invoiceable once unblocked') invoiceable_taxable_paise!: string;
+  @paise('Not-yet-invoiced value of the whole order: sum of round((accepted - invoiced) x unit price) over live lines') uninvoiced_taxable_paise!: string;
+  @int() lines_total!: number;
+  @int('lines with invoiceable quantity left now') lines_invoiceable!: number;
+  @int('live (not CANCELLED) BR-08 invoices on this order') invoices_count!: number;
+  @ApiProperty({ type: 'string', nullable: true, enum: ['ADVANCE_CONFIRMED', 'DISPATCHED', 'DELIVERED'],
+    description: 'Newest event that makes quantity invoiceable under the trigger (ADVANCE / DISPATCH / DELIVERY); null if none yet' })
+  trigger_event_kind!: string | null;
+  @nullableStr('SOUT number for DISPATCHED / DELIVERED events') trigger_event_ref!: string | null;
+  @nullableStr(undefined, 'date-time') trigger_event_at!: string | null;
+  @ApiProperty({ enum: INVOICE_READINESS, description: READINESS_DOC }) readiness!: string;
+  @nullableStr('why BLOCKED (server wording); null otherwise') blocked_reason!: string | null;
+}
+
+export class InvoiceQueueCounts {
+  @ApiProperty({ type: 'integer' }) READY!: number;
+  @ApiProperty({ type: 'integer' }) WAITING!: number;
+  @ApiProperty({ type: 'integer' }) BLOCKED!: number;
+}
+
+export class InvoiceQueuePage extends PageMeta {
+  @ApiProperty({ type: InvoiceQueueConfig }) config!: InvoiceQueueConfig;
+  @ApiProperty({ type: [InvoiceQueueRow], description: 'READY first, then WAITING, then BLOCKED; newest trigger event first' }) rows!: InvoiceQueueRow[];
+  @ApiProperty({ type: InvoiceQueueCounts, description: 'Per-readiness totals under `search` only' }) counts_by_readiness!: InvoiceQueueCounts;
 }

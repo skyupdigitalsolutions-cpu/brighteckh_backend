@@ -11,11 +11,11 @@ import { CurrentActor } from '../../common/auth/current-actor.decorator';
 import { Br08Service } from './br08.service';
 import {
   AllocatePaymentDto, CreateDispatchBatchDto, CreditNoteDto, DispatchBatchDto, EntityProfileDto,
-  InvoiceRequestDto, ListInvoicesQueryDto, ProofOfDeliveryDto, RecordPaymentDto, SalesInvoiceRequestDto, WaiverDto,
+  InvoiceRequestDto, ListInvoicesQueryDto, ListReceiptsQueryDto, ProofOfDeliveryDto, RecordPaymentDto, SalesInvoiceRequestDto, WaiverDto,
 } from './dto/br08.dto';
 import {
   CreditNoteDetail, DispatchBatchCreated, DispatchBatchDetail, Dispatched, EntityProfileResponse, InvoiceDetail,
-  InvoicePreview, InvoicePrint, ReceiptDetail, SalesInvoicePreview, WaiverResult,
+  InvoicePreview, InvoicePrint, ReceiptDetail, PaymentReceiptListPage, SalesInvoicePreview, WaiverResult,
 } from './dto/br08.responses';
 
 interface Actor { id: string; role: string; companyId: string }
@@ -161,6 +161,18 @@ export class Br08Controller {
   }
 
   // ---- payments
+
+  @Get('payments')
+  @Roles(Role.FINANCE, Role.MANAGEMENT)
+  @ApiOperation({
+    summary: 'Payment receipts (paginated), optionally for one customer: unallocated amount + remaining BR-11 advance coverage',
+    description: 'Paginated: `page`, `page_size` (max 100). `customer_id` filters; `search` matches reference, customer, mode. '
+      + 'Newest received first. Used by the Finance advance confirmation picker (POST /sales-orders/:id/payment-terms/confirm-advance).',
+  })
+  @ApiOkResponse({ type: PaymentReceiptListPage })
+  listReceipts(@Query() q: ListReceiptsQueryDto, @CurrentActor() actor: Actor) {
+    return this.svc.listReceipts(q, actor);
+  }
 
   @Post('payments')
   @Roles(Role.FINANCE)

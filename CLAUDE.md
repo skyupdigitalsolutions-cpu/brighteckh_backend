@@ -493,6 +493,20 @@ Never joins sourcing authorisations / supplier offers / SALES_ORDER PO prices. M
   `advance_cleared` (NOT_REQUIRED or Finance-confirmed), open change requests, live outward count.
 - `GET /sales-supply/outwards`: + customer, line counts (picked = past DRAFT, with packing evidence, DELIVERED), latest
   tracking note, the Sales Orders on it. Search includes SO number and tracking reference.
+- (18 Nov 2026, for the Finance screens) `GET /sales-supply/orders` also returns the advance amount / percent, terms recorded
+  at / by name and advance confirmed at, and takes `advance_pending` (true = terms need an advance Finance hasn't confirmed).
+- `GET /sales-supply/invoice-queue` (FINANCE / MANAGEMENT): VERIFIED / PART_DELIVERED / DELIVERED orders with un-invoiced
+  value. `readiness` mirrors `br08_build_sales_invoice`: BLOCKED (trigger unset / MILESTONE, no active PRODUCT_SALE GST rate,
+  company invoicing profile incomplete, customer not APPROVED, customer GSTIN / state missing; `blocked_reason` uses the
+  server wording) > READY (some line has `br11_line_invoiceable_qty - br11_line_invoiced_qty > 0`) > WAITING. Returns
+  tax regime (customer vs company state), invoiceable / un-invoiced taxable paise, the newest trigger event (advance
+  confirmed / SOUT dispatched / POD delivered) and `config` {invoice_trigger, product_gst_rate_configured, blocked}.
+  Item-level refusals (item no longer APPROVED / ACTIVE) only show in the preview.
+- `GET /payments` (FINANCE / MANAGEMENT, BR-08 module; was POST-only): receipts with customer name, unallocated amount,
+  `advance_backed_paise` (BR-11 advances confirmed against it) and `available_for_advance_paise` (same arithmetic as
+  `br11_guard_payment_condition`). `customer_id`, `search`, paging. Receipts have no receipt number (none exists in BR-08).
+  Response schemas are `PaymentReceiptListRow` / `PaymentReceiptListPage` (renamed: `ReceiptListRow` / `ReceiptListPage`
+  are the BR-02 JIN register schemas; the same class name would overwrite them in the OpenAPI document).
 
 ## 4i. Frontend lookups + uploads — migrations 022/023, src/modules/uploads (+ BR-02/BR-03/Masters reads)
 
