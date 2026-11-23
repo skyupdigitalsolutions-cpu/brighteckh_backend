@@ -142,6 +142,9 @@ export class Br03Controller {
     return this.svc.getJobMaterialRequests(id, actor);
   }
 
+  // PURCHASE / MANAGEMENT: the company inbox. ENGINEER: only MRs they are responsible for or on jobs currently
+  // assigned to them (the Engineer app reads this list). Security fix 19 Nov 2026 — any role could read every MR.
+  @Roles(Role.PURCHASE, Role.MANAGEMENT, Role.ENGINEER)
   @Get('material-requests')
   @ApiOperation({ summary: "Purchase inbox: company's material requests, newest first" })
   @ApiQuery({ name: 'status', required: false, enum: ['DRAFT','SUBMITTED','PROCESSING','RETURNED','CHANGE_REQUESTED','WITHDRAWN','CLOSED'] })

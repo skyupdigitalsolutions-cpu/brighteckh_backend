@@ -668,6 +668,25 @@ All `@Roles(STORES_QUALITY)`, company from the token, quantities only (never `un
 outstanding qty (the UI caps it). 4. A post may allocate less than received; the remainder is never stocked (UI warns).
 5. OpenAPI documents `GrnLineInputDto.received_quantity` minimum 1 but the DTO validates `@IsPositive()`.
 
+**Purchase MR inbox (19 Nov 2026, no migration):** `src/modules/purchase-desk/material-requests-desk.*`. Tests:
+`test/purchase-mr-inbox.e2e-spec.ts`. `GET /purchase/material-requests` (PURCHASE, MANAGEMENT; company from the token) for the
+"Requests" pill. Additive: `GET /material-requests` (raw rows) is unchanged; the detail panel uses `GET /jobs/:id/material-requests`.
+- Purchase-desk conventions (`page`, `page_size` <= 100, unknown params 400). Filters: `status` / `priority` (csv DB values),
+  `job_id`, `engineer_id` (= responsible_engineer_id), `search` (request no., job no., engineer name, customer name).
+  `counts_by_status` = all 7 statuses (zeros included) over company + `search` only (ignores status / priority / job / engineer).
+- Rows: header fields, `purchase_started_by_name`, `engineer_can_edit` (= `br03_can_engineer_edit(id)` at read time), job no.,
+  customer name (job -> inward receipt), responsible engineer id/name, `lines_count`, `pending_change_requests`,
+  `latest_change_request_at`. No lines, no BR-04 offer / estimate / price, no supplier data.
+- Order: CHANGE_REQUESTED, then SUBMITTED, then the rest; then CRITICAL -> URGENT -> NORMAL; then COALESCE(submitted_at,
+  created_at) desc; request_number desc.
+
+**OPEN DECISIONS (Purchase MR inbox, flagged, not resolved):**
+1. DRAFT requests (not yet sent by the engineer) are included in rows and counts; the UI has no DRAFT tab.
+2. `br03_material_change_requests` has no timestamp column: `latest_change_request_at` = changed_at of the
+   `BR03_CHANGE_REQUEST_CREATED` audit row (null if a CR was ever inserted without one).
+3. RETURNED / WITHDRAWN / CLOSED have no API that sets them (the tests set them by fixture UPDATE). Accepting a change
+   request still does not apply the proposed line change.
+
 **OPEN DECISIONS (Sales desk reads, flagged, not resolved):**
 1. Not built: a responses-feed endpoint (G-S3), a Sales overview/activity endpoint (G-S4), send recipients/email (send has no body).
 2. ~~`POST /jobs/:id/quote-responses` is not hardened server-side~~ — RESOLVED 16 Nov 2026 (product owner approved):

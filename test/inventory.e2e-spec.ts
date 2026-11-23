@@ -118,4 +118,54 @@ describe('Inventory ledger integrity', () => {
     ok(await post('receipts', { ...base(), qty: 1, to_location_id: f.loc.MAIN_STORE }));
     expect((await balances(f.companyId, item, f.purchase)).main).toBe(before.main + 1);
   });
+
+  // Security fix (19 Nov 2026): master approval and stock-movement writes had NO role check. RolesGuard runs before the
+  // service, so a non-Purchase role is 403 even for an unknown id, while Purchase reaches the service (404).
+  describe('role guards: approval + stock-movement writes are PURCHASE-only', () => {
+    const NON_PURCHASE = () => [
+      ['ENGINEER', f.engineer], ['SALES', f.sales], ['STORES_QUALITY', f.stores], ['FINANCE', f.finance], ['MANAGEMENT', f.mgmt],
+    ] as const;
+
+    it('item approval: every non-Purchase role is 403 and the item stays DRAFT; Purchase approves it', async () => {
+      const draft = await createItem(f.purchase, false, 'guard-item');
+      for (const [role, actor] of NON_PURCHASE()) {
+        const r = await api('post', `/masters/items/${draft}/approve`, actor);
+        expect([role, r.status]).toEqual([role, 403]);
+      }
+      expect((await c.query(`SELECT status FROM fdn_item_master WHERE id=$1`, [draft])).rows[0].status).toBe('DRAFT');
+      expect(ok(await api('post', `/masters/items/${draft}/approve`, f.purchase)).status).toBe('ACTIVE');
+    });
+
+    it('assembly approval: every non-Purchase role is 403; Purchase passes the guard (404 for an unknown id)', async () => {
+      const unknown = randomUUID();
+      for (const [role, actor] of NON_PURCHASE()) {
+        const r = await api('post', `/masters/assemblies/${unknown}/approve`, actor);
+        expect([role, r.status]).toEqual([role, 403]);
+      }
+      fails(await api('post', `/masters/assemblies/${unknown}/approve`, f.purchase), 404);
+    });
+
+    it('every inventory write is 403 for non-Purchase roles and posts nothing', async () => {
+      const before = await balances(f.companyId, item, f.purchase);
+      const journal = async () => Number((await c.query(
+        `SELECT count(*) FROM fdn_inventory_journal WHERE item_id=$1`, [item])).rows[0].count);
+      const j0 = await journal();
+      const writes: [string, object][] = [
+        ['receipts', { ...base(), qty: 1, to_location_id: f.loc.MAIN_STORE }],
+        ['reservations', { ...base(), qty: 1 }],
+        ['issues', { ...base(), qty: 1, from_location_id: f.loc.MAIN_STORE, to_location_id: f.loc.ENGINEER_HELD }],
+        ['consumptions', { ...base(), qty: 1, from_location_id: f.loc.ENGINEER_HELD, to_location_id: f.loc.CONSUMED }],
+        ['returns', { ...base(), qty: 1, from_location_id: f.loc.ENGINEER_HELD, to_location_id: f.loc.MAIN_STORE }],
+        ['supplier-returns', { ...base(), qty: 1, from_location_id: f.loc.QUARANTINE, to_location_id: f.loc.SUPPLIER_RETURN }],
+      ];
+      for (const [path, body] of writes) {
+        for (const [role, actor] of NON_PURCHASE()) {
+          const r = await api('post', `/inventory/${path}`, actor, body, { 'Idempotency-Key': idem() });
+          expect([path, role, r.status]).toEqual([path, role, 403]);
+        }
+      }
+      expect(await journal()).toBe(j0);
+      expect(await balances(f.companyId, item, f.purchase)).toEqual(before);
+    });
+  });
 });

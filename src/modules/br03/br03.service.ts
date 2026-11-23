@@ -607,14 +607,18 @@ export class Br03Service {
   }
 
   async listMaterialRequests(actor: Actor, status?: string) {
-    const r = status
-      ? await this.pg.query(
-        `SELECT * FROM br03_material_requests WHERE company_id=$1 AND status=$2 ORDER BY created_at DESC`,
-        [actor.companyId, status],
-      )
-      : await this.pg.query(
-        `SELECT * FROM br03_material_requests WHERE company_id=$1 ORDER BY created_at DESC`, [actor.companyId],
-      );
+    // ENGINEER sees only MRs they are responsible for, or on jobs currently assigned to them (job_assignments.is_current,
+    // the same rule as GET /my-jobs) -- so a job reassigned to them still shows its earlier MRs. Others: the company.
+    const engineerScope = actor.role === 'ENGINEER'
+      ? ` AND (m.responsible_engineer_id = $3 OR EXISTS (SELECT 1 FROM job_assignments a
+                 WHERE a.job_id = m.job_id AND a.engineer_id = $3 AND a.is_current))`
+      : '';
+    const r = await this.pg.query(
+      `SELECT m.* FROM br03_material_requests m
+        WHERE m.company_id = $1 AND ($2::text IS NULL OR m.status = $2)${engineerScope}
+        ORDER BY m.created_at DESC`,
+      actor.role === 'ENGINEER' ? [actor.companyId, status ?? null, actor.id] : [actor.companyId, status ?? null],
+    );
     return r.rows;
   }
 

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, ParseUUIDPipe } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, ParseUUIDPipe, UseGuards } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { MastersService } from './masters.service';
 import { CreateItemDto, CreateAssemblyDto, AddBomLineDto } from './dto/masters.dto';
@@ -8,6 +8,9 @@ import {
 import { ApiAuth, ApiStdErrors } from '../../common/swagger/api-docs';
 import { CurrentActor } from '../../common/auth/current-actor.decorator';
 import { AuthUser } from '../../common/auth/auth.types';
+import { RolesGuard } from '../../common/auth/roles.guard';
+import { Roles } from '../../common/auth/roles.decorator';
+import { Role } from '../../common/auth/roles.enum';
 
 const STATUS_QUERY = {
   name: 'status', required: false,
@@ -19,6 +22,8 @@ const STATUS_QUERY = {
 @ApiAuth()
 @ApiStdErrors()
 @Controller('masters')
+// Approval is PURCHASE-only (CLAUDE.md rule 3; security fix 19 Nov 2026 — it had no role check at all).
+@UseGuards(RolesGuard)
 export class MastersController {
   constructor(private readonly svc: MastersService) {}
 
@@ -27,6 +32,7 @@ export class MastersController {
     return this.svc.createItem(dto, actor.id);
   }
   @ApiCreatedResponse({ type: FdnItemMasterRow })
+  @Roles(Role.PURCHASE)
   @Post('items/:id/approve') approveItem(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: AuthUser) {
     return this.svc.approveItem(id, actor.id);
   }
@@ -50,6 +56,7 @@ export class MastersController {
     return this.svc.createAssembly(dto, actor.id);
   }
   @ApiCreatedResponse({ type: FdnAssemblyMasterRow })
+  @Roles(Role.PURCHASE)
   @Post('assemblies/:id/approve') approveAssembly(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: AuthUser) {
     return this.svc.approveAssembly(id, actor.id);
   }

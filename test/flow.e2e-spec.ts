@@ -130,6 +130,18 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       ok(await api('post', `/material-requests/${s.mr}/lines`, E(), { item_bridge_id: s.bridgeOk, quantity: 8 }));
     });
 
+    // Security fix (19 Nov 2026): GET /material-requests was readable by every role, across the whole company.
+    it('GET /material-requests: Purchase / Management see the inbox; an Engineer only their own; Sales / Stores 403', async () => {
+      const ids = async (actor: string) => ok<{ id: string }[]>(await api('get', '/material-requests', actor)).map((r) => r.id);
+      expect(await ids(P())).toContain(s.mr);
+      expect(await ids(f.mgmt)).toContain(s.mr);
+      expect(await ids(E())).toContain(s.mr); // responsible + currently assigned engineer
+      const otherEngineer = await employeeIn(c, f.companyId, 'ENG', 'ENGINEER', 'MRX');
+      expect(await ids(otherEngineer)).not.toContain(s.mr);
+      fails(await api('get', '/material-requests', f.sales), 403);
+      fails(await api('get', '/material-requests', f.stores), 403);
+    });
+
     it('no approval gate: submit lands directly in Purchase inbox as SUBMITTED', async () => {
       const sub = ok(await api('post', `/material-requests/${s.mr}/submit`, E()));
       expect(sub.status).toBe('SUBMITTED');
