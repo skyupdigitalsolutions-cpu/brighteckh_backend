@@ -687,6 +687,31 @@ outstanding qty (the UI caps it). 4. A post may allocate less than received; the
 3. RETURNED / WITHDRAWN / CLOSED have no API that sets them (the tests set them by fixture UPDATE). Accepting a change
    request still does not apply the proposed line change.
 
+**Purchase PO register (23 Nov 2026, no migration):** `src/modules/purchase-desk/purchase-orders-desk.*` + additive fields on
+BR-06 `GET /purchase-orders/:id`. Tests: `test/flow.e2e-spec.ts` (BR-06 block, "PO register:" / "PO detail:") and
+`test/br11.e2e-spec.ts` (SALES_ORDER PO + shipment). For the Purchase "Orders" pill.
+- `GET /purchase-orders` (**PURCHASE only**, product owner 23 Nov 2026: Management does not get the PO list yet). Purchase-desk
+  conventions (`page`, `page_size` <= 100, unknown params 400). Filters: `status` / `purpose` (csv), `job_id`, `sales_order_id`,
+  `supplier_id`, `search` (PO no., supplier, job no., SO no., ack supplier_reference, any shipment AWB/LR). `counts_by_status` =
+  all 7 statuses over company + `search` only. Newest created first.
+- Rows: header, supplier, job / SO number, customer (job's inward receipt, else the SO's), currency, payment terms, `lines_count`,
+  `value_pre_tax` = Σ round(qty × unit_price, 2) as a rupee decimal string (NOT paise; no discount / freight / tax exists on a
+  PO), created / released by names, acknowledgement, newest shipment, `expected_date` (shipment expected arrival, else ack
+  expected delivery), `grns_count`, `last_received_at`, `lines_outstanding` (same rule as the Stores desk). Never offer ids /
+  versions / ranks / landed cost, sourcing-authorisation evidence, customer quote or BR-11 sell prices.
+- `GET /purchase-orders/:id` (PURCHASE, unchanged role) now also returns `job_number`, `sales_order_number`, `customer_name`,
+  `created_by_name`, `released_by_name`, `acknowledgement` (+ recorded_by), `shipments[]` (newest first), `grns[]` (summary:
+  lines total / posted, received + posted accepted / rejected / held qty) and per line `item_code`, `item_name`,
+  `product_condition` / `offered_make` / `offered_part_number` (from the source BR-04 offer line; null on SALES_ORDER lines),
+  `received_quantity`, `outstanding_quantity`. Response schema `PurchaseOrderReadDetail`; `POST /jobs/:id/purchase-orders` still
+  returns `PurchaseOrderDetail`.
+
+**OPEN DECISIONS (Purchase PO register, flagged, not resolved):**
+1. Offer discount / freight / landed cost are NOT returned for PO lines (offer-quantity values, not PO values); the Figma
+   Disc. / Freight / Landed columns and its freight-inclusive PO value have no PO-level source.
+2. No cancel endpoint (no cancelled_at / reason) and no CLOSED rule (no closed_at): those statuses are never reached.
+3. "Acknowledged on" / "Shipped on" are server-stamped (now()), not inputs.
+
 **OPEN DECISIONS (Sales desk reads, flagged, not resolved):**
 1. Not built: a responses-feed endpoint (G-S3), a Sales overview/activity endpoint (G-S4), send recipients/email (send has no body).
 2. ~~`POST /jobs/:id/quote-responses` is not hardened server-side~~ — RESOLVED 16 Nov 2026 (product owner approved):

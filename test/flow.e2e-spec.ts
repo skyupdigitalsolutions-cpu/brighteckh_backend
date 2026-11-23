@@ -386,6 +386,84 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       expect(po.grns[0]).toMatchObject({ grn_id: s.grn, lines_total: 1, lines_posted: 0, grn_status: 'OPEN' });
     });
 
+    // Purchase PO register + detail additions (CLAUDE.md §4i "Purchase PO register"): the Orders pill.
+    const PO_ROW_KEYS = [
+      'id', 'po_number', 'po_status', 'purchase_purpose', 'supplier_id', 'supplier_name', 'job_id', 'job_number',
+      'sales_order_id', 'sales_order_number', 'customer_name', 'currency_code', 'payment_terms', 'lines_count',
+      'value_pre_tax', 'created_at', 'created_by_name', 'released_at', 'released_by_name', 'acknowledgement',
+      'latest_shipment', 'expected_date', 'grns_count', 'last_received_at', 'lines_outstanding',
+    ].sort();
+    // Offer / sourcing / sell-price fields that must never reach the register.
+    const OFFER_RE = /offer_line|offer_version|landed|quoted_|selected_rank|sourcing_authorisation|evidence_uri|revised_pre_tax/;
+    it('PO register: GET /purchase-orders lists the PO with job, customer, value, ack and GRN count; nothing from the offer', async () => {
+      const po = ok(await api('get', `/purchase-orders/${s.po}`, P()));
+      const expectedValue = po.lines.reduce((t: number, l: any) => t + Math.round(Number(l.quantity) * Number(l.unit_price) * 100) / 100, 0);
+      const page = ok(await api('get', `/purchase-orders?search=${encodeURIComponent(po.po_number)}`, P()));
+      expect(page).toMatchObject({ total: 1, page: 1, page_size: 25 });
+      expect(page.counts_by_status).toEqual({ DRAFT: 0, RELEASED: 0, ACKNOWLEDGED: 1, SHIPPED: 0, RECEIVED: 0, CLOSED: 0, CANCELLED: 0 });
+      const row = page.rows[0];
+      expect(Object.keys(row).sort()).toEqual(PO_ROW_KEYS);
+      expect(row).toMatchObject({
+        id: s.po, po_status: 'ACKNOWLEDGED', purchase_purpose: 'CUSTOMER_JOB', job_id: s.job, job_number: po.job_number,
+        sales_order_id: null, sales_order_number: null, currency_code: po.currency_code, lines_count: 1,
+        latest_shipment: null, grns_count: 1, lines_outstanding: s.poOrdered > 10 ? 1 : 0,
+      });
+      expect(Number(row.value_pre_tax)).toBeCloseTo(expectedValue, 2);
+      expect(row.acknowledgement).toMatchObject({ supplier_reference: `SO-${RUN}` });
+      expect(row.expected_date).toBe(row.acknowledgement.expected_delivery_date);
+      expect(row.customer_name).toBeTruthy();
+      expect(row.created_by_name).toBeTruthy();
+      expect(row.released_by_name).toBeTruthy();
+      expect(row.last_received_at).toBeTruthy();
+      expect(JSON.stringify(page)).not.toMatch(OFFER_RE);
+      // search by the ack supplier reference and by job; filters narrow, counts ignore them
+      expect(ok(await api('get', `/purchase-orders?search=${encodeURIComponent(`SO-${RUN}`)}`, P())).rows.map((r: any) => r.id)).toEqual([s.po]);
+      expect(ok(await api('get', `/purchase-orders?job_id=${s.job}`, P())).rows.map((r: any) => r.id)).toContain(s.po);
+      const none = ok(await api('get', `/purchase-orders?status=DRAFT,RECEIVED&search=${encodeURIComponent(po.po_number)}`, P()));
+      expect(none.total).toBe(0);
+      expect(none.counts_by_status.ACKNOWLEDGED).toBe(1);
+      expect(ok(await api('get', `/purchase-orders?purpose=SALES_ORDER&search=${encodeURIComponent(po.po_number)}`, P())).total).toBe(0);
+    });
+
+    it('PO detail: GET /purchase-orders/:id adds names, acknowledgement, shipments, GRN summary and item/offer refs per line', async () => {
+      const po = ok(await api('get', `/purchase-orders/${s.po}`, P()));
+      expect(po).toMatchObject({ id: s.po, po_status: 'ACKNOWLEDGED', shipments: [], sales_order_number: null });
+      expect(po.job_number).toBeTruthy();
+      expect(po.customer_name).toBeTruthy();
+      expect(po.created_by_name).toBeTruthy();
+      expect(po.released_by_name).toBeTruthy();
+      expect(po.acknowledgement).toMatchObject({ supplier_reference: `SO-${RUN}`, recorded_by_id: f.purchase });
+      expect(po.acknowledgement.recorded_by_name).toBeTruthy();
+      expect(po.grns).toHaveLength(1);
+      expect(po.grns[0]).toMatchObject({ grn_id: s.grn, received_by_id: f.stores, lines_total: 1, lines_posted: 0 });
+      expect([po.grns[0].received_quantity, po.grns[0].accepted_quantity].map(Number)).toEqual([10, 0]);
+      const line = po.lines[0];
+      expect(line).toMatchObject({ id: s.poLine, source_br04_offer_line_id: s.offerLine });
+      expect(line.unit_price).toBeDefined(); // Purchase already saw unit_price; unchanged
+      expect(line.item_code).toBeTruthy();
+      expect(line.item_name).toBeTruthy();
+      expect(line.product_condition).toBeTruthy();
+      expect(Number(line.received_quantity)).toBe(10);
+      expect(Number(line.outstanding_quantity)).toBe(Math.max(s.poOrdered - 10, 0));
+      // offer discount / freight / landed cost are offer-quantity values, not PO values: never returned
+      expect(JSON.stringify(po)).not.toMatch(/landed|quoted_discount|freight_packing/);
+    });
+
+    it('PO register: PURCHASE only (Management not yet), company-scoped, filters validated', async () => {
+      for (const who of [f.mgmt, f.stores, f.sales, f.engineer, f.finance, f.admin]) {
+        fails(await api('get', '/purchase-orders', who), 403);
+        fails(await api('get', `/purchase-orders/${s.po}`, who), 403);
+      }
+      const foreignPurchase = await employeeIn(c, await otherCompany(c), 'PUR', 'PURCHASE', 'POX');
+      expect(JSON.stringify(ok(await api('get', '/purchase-orders?page_size=100', foreignPurchase)))).not.toContain(s.po);
+      fails(await api('get', `/purchase-orders/${s.po}`, foreignPurchase), 403);
+      fails(await api('get', '/purchase-orders?status=OPEN', P()), 400);
+      fails(await api('get', '/purchase-orders?purpose=REPAIR', P()), 400);
+      fails(await api('get', '/purchase-orders?job_id=not-a-uuid', P()), 400);
+      fails(await api('get', '/purchase-orders?page_size=101', P()), 400);
+      fails(await api('get', '/purchase-orders?company_id=x', P()), 400);
+    });
+
     it('Stores desk: the GRN register + detail show the new GRN OPEN with no photos yet', async () => {
       const grn = ok(await api('get', `/stores/grns/${s.grn}`, f.stores));
       expect(grn).toMatchObject({ grn_id: s.grn, po_id: s.po, grn_status: 'OPEN', lines_total: 1, lines_posted: 0, received_by_id: f.stores });
@@ -486,6 +564,18 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       const po = ok(await api('get', `/stores/purchase-orders/${s.po}`, f.stores));
       expect(po).toMatchObject({ po_status: 'RECEIVED', can_receive: false });
       expect(ok(await api('get', `/stores/receivable-pos?search=${encodeURIComponent(po.po_number)}`, f.stores)).total).toBe(0);
+    });
+
+    it('PO register: the RECEIVED PO counts under RECEIVED with nothing outstanding; detail GRN shows 8 / 1 / 1', async () => {
+      const po = ok(await api('get', `/purchase-orders/${s.po}`, P()));
+      const page = ok(await api('get', `/purchase-orders?status=RECEIVED&search=${encodeURIComponent(po.po_number)}`, P()));
+      expect(page.rows.map((r: any) => r.id)).toEqual([s.po]);
+      expect(page.counts_by_status).toMatchObject({ ACKNOWLEDGED: 0, RECEIVED: 1 });
+      expect(page.rows[0]).toMatchObject({ po_status: 'RECEIVED', lines_outstanding: 0, grns_count: 1 });
+      expect(page.rows[0].last_received_at).toBe(po.grns[0].received_at);
+      expect(po.grns[0]).toMatchObject({ lines_posted: 1 });
+      expect([po.grns[0].accepted_quantity, po.grns[0].rejected_quantity, po.grns[0].held_quantity].map(Number)).toEqual([8, 1, 1]);
+      expect(Number(po.lines[0].outstanding_quantity)).toBe(0);
     });
   });
 

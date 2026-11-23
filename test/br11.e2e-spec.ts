@@ -318,11 +318,40 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
     it('B09: supplier goods become saleable only after the BR-06 GRN posts to the ledger', async () => {
       ok(await api('post', `/purchase-orders/${s.po.id}/release`, P()));
       ok(await api('post', `/purchase-orders/${s.po.id}/acknowledge`, P(), { supplier_reference: `ACK-${RUN}` }));
+      // shipment (ACKNOWLEDGED -> SHIPPED) so the Purchase PO register's shipment fields are exercised; GRN accepts SHIPPED
+      ok(await api('post', `/purchase-orders/${s.po.id}/shipment`, P(), {
+        carrier: 'IT Carrier', awb_or_lr_number: `AWB-${RUN}`, expected_arrival_date: '2030-01-15',
+      }));
       const grn = ok(await api('post', `/purchase-orders/${s.po.id}/grns`, f.stores, { lines: [{ po_line_id: s.po.lines[0].id, received_quantity: 6 }] }));
       expect((await balances(f.companyId, s.item, P())).allocatable).toBe(0);
       ok(await api('post', `/grn-lines/${grn.lines[0].id}/media`, f.stores, { file_uri: `s3://it/grn-${RUN}.jpg`, file_name: 'grn.jpg' }));
       ok(await api('post', `/grn-lines/${grn.lines[0].id}/post`, f.stores, { accepted_quantity: 6, rejected_quantity: 0, held_quantity: 0 }));
       expect(await balances(f.companyId, s.item, P())).toMatchObject({ main: 6, allocatable: 6 });
+    });
+
+    it('Purchase PO register: the SALES_ORDER PO shows its SO number, SO customer, shipment and RECEIVED; no sourcing data', async () => {
+      const page = ok(await api('get', `/purchase-orders?search=${encodeURIComponent(`AWB-${RUN}`)}`, P()));
+      expect(page.rows.map((r: any) => r.id)).toEqual([s.po.id]);
+      const row = page.rows[0];
+      expect(row).toMatchObject({
+        po_status: 'RECEIVED', purchase_purpose: 'SALES_ORDER', job_id: null, job_number: null, sales_order_id: s.so.id,
+        lines_count: 1, lines_outstanding: 0, grns_count: 1, expected_date: '2030-01-15',
+      });
+      expect(row.sales_order_number).toMatch(/^SO-BLR-\d{6}$/);
+      expect(row.customer_name).toBeTruthy();
+      expect(row.latest_shipment).toMatchObject({ carrier: 'IT Carrier', awb_or_lr_number: `AWB-${RUN}`, expected_arrival_date: '2030-01-15' });
+      expect(ok(await api('get', `/purchase-orders?purpose=SALES_ORDER&sales_order_id=${s.so.id}`, P())).rows.map((r: any) => r.id)).toEqual([s.po.id]);
+      expect(ok(await api('get', `/purchase-orders?purpose=CUSTOMER_JOB&sales_order_id=${s.so.id}`, P())).total).toBe(0);
+      expect(JSON.stringify(page)).not.toMatch(/sourcing_authorisation|evidence_uri|selected_rank|supplier_unit_price|unit_price_paise/);
+
+      const po = ok(await api('get', `/purchase-orders/${s.po.id}`, P()));
+      expect(po).toMatchObject({ sales_order_number: row.sales_order_number, job_number: null, customer_name: row.customer_name });
+      expect(po.shipments).toHaveLength(1);
+      expect(po.shipments[0]).toMatchObject({ carrier: 'IT Carrier', awb_or_lr_number: `AWB-${RUN}`, recorded_by_id: f.purchase });
+      expect(po.lines[0]).toMatchObject({ product_condition: null, offered_make: null, offered_part_number: null });
+      expect(po.lines[0].item_code).toBeTruthy();
+      expect(po.grns[0]).toMatchObject({ lines_posted: 1 });
+      expect(Number(po.grns[0].accepted_quantity)).toBe(6);
     });
 
     it('B04: reserve 4 through fdn_reserve; the same Idempotency-Key returns the same request (no double reservation)', async () => {

@@ -4,7 +4,7 @@ import {
   Br06GrnLineMediaRow, Br06GrnLinesRow, Br06GrnsRow, Br06SalesSourcingAuthorisationsRow, Br06SupplierPurchaseOrdersRow,
 } from '../../common/swagger/rows.generated';
 import {
-  GrnDetail, PurchaseOrderDetail,
+  GrnDetail, PurchaseOrderDetail, PurchaseOrderReadDetail,
 } from './dto/br06.responses';
 import { ApiAuth, ApiStdErrors } from '../../common/swagger/api-docs';
 import { Br06Service } from './br06.service';
@@ -45,8 +45,8 @@ export class Br06Controller {
   }
 
   @Get('purchase-orders/:id')
-  @ApiOperation({ summary: "Supplier PO with lines" })
-  @ApiOkResponse({ type: PurchaseOrderDetail })
+  @ApiOperation({ summary: "Supplier PO with lines (+ item code/name, received qty), acknowledgement, shipments, GRN summaries, names" })
+  @ApiOkResponse({ type: PurchaseOrderReadDetail })
   @Roles(Role.PURCHASE)
   getPo(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.svc.getPo(id, actor);

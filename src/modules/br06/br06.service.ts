@@ -351,8 +351,61 @@ export class Br06Service {
     const po = await this.pg.query(`SELECT * FROM br06_supplier_purchase_orders WHERE id=$1`, [id]);
     if (!po.rows[0]) throw new NotFoundException('purchase order not found');
     if (po.rows[0].company_id !== actor.companyId) throw new ForbiddenException('PO belongs to another company');
-    const lines = await this.pg.query(`SELECT * FROM br06_po_lines WHERE po_id=$1 ORDER BY line_no`, [id]);
-    return { ...po.rows[0], lines: lines.rows };
+    // Additive read fields (23 Nov 2026, Orders pill): names / numbers, acknowledgement, shipments, GRN summaries, and per
+    // line the item code/name, the offered make/part/condition (CUSTOMER_JOB lines) and received / outstanding qty.
+    // Offer discount / freight / landed cost are deliberately NOT returned: they are offer-quantity values, not PO values.
+    const [hdr, lines, ack, shipments, grns] = await Promise.all([
+      this.pg.query(`
+        SELECT j.job_number, so.sales_order_number, COALESCE(jc.customer_name, sc.customer_name) AS customer_name,
+               cb.full_name AS created_by_name, rb.full_name AS released_by_name
+          FROM br06_supplier_purchase_orders p
+          JOIN employees cb              ON cb.id = p.created_by_id
+          LEFT JOIN employees rb         ON rb.id = p.released_by_id
+          LEFT JOIN service_jobs j       ON j.id = p.job_id AND j.company_id = p.company_id
+          LEFT JOIN inward_receipts r    ON r.id = j.inward_id AND r.company_id = j.company_id
+          LEFT JOIN customers jc         ON jc.id = r.customer_id AND jc.company_id = r.company_id
+          LEFT JOIN br11_sales_orders so ON so.id = p.sales_order_id AND so.company_id = p.company_id
+          LEFT JOIN customers sc         ON sc.id = so.customer_id AND sc.company_id = so.company_id
+         WHERE p.id = $1`, [id]),
+      this.pg.query(`
+        SELECT pl.*, b.item_code, b.item_name, ol.product_condition, ol.offered_make, ol.offered_part_number,
+               COALESCE(rcv.received, 0)::numeric(16,4) AS received_quantity,
+               GREATEST(pl.quantity - COALESCE(rcv.received, 0), 0)::numeric(16,4) AS outstanding_quantity
+          FROM br06_po_lines pl
+          JOIN br03_item_catalog_bridge b ON b.id = pl.item_bridge_id
+          LEFT JOIN br04_supplier_offer_lines ol ON ol.id = pl.source_br04_offer_line_id
+          LEFT JOIN LATERAL (SELECT SUM(gl.received_quantity) AS received FROM br06_grn_lines gl
+                              WHERE gl.po_line_id = pl.id) rcv ON true
+         WHERE pl.po_id = $1 ORDER BY pl.line_no`, [id]),
+      this.pg.query(`
+        SELECT a.supplier_reference, to_char(a.expected_delivery_date, 'YYYY-MM-DD') AS expected_delivery_date, a.notes,
+               a.acknowledged_at, a.recorded_by_id, e.full_name AS recorded_by_name
+          FROM br06_po_acknowledgements a JOIN employees e ON e.id = a.recorded_by_id
+         WHERE a.po_id = $1`, [id]),
+      this.pg.query(`
+        SELECT s.id, s.carrier, s.awb_or_lr_number, to_char(s.expected_arrival_date, 'YYYY-MM-DD') AS expected_arrival_date,
+               s.notes, s.shipped_at, s.recorded_by_id, e.full_name AS recorded_by_name
+          FROM br06_shipments s JOIN employees e ON e.id = s.recorded_by_id
+         WHERE s.po_id = $1 ORDER BY s.shipped_at DESC, s.id DESC`, [id]),
+      this.pg.query(`
+        SELECT g.id AS grn_id, g.grn_number, g.received_at, g.received_by_id, e.full_name AS received_by_name,
+               cnt.lines_total, cnt.lines_posted, cnt.received_quantity, cnt.accepted_quantity, cnt.rejected_quantity,
+               cnt.held_quantity
+          FROM br06_grns g
+          JOIN employees e ON e.id = g.received_by_id
+          JOIN LATERAL (
+            SELECT count(*)::int AS lines_total, count(gl.posted_at)::int AS lines_posted,
+                   COALESCE(SUM(gl.received_quantity), 0)::numeric(16,4) AS received_quantity,
+                   COALESCE(SUM(gl.accepted_quantity) FILTER (WHERE gl.posted_at IS NOT NULL), 0)::numeric(16,4) AS accepted_quantity,
+                   COALESCE(SUM(gl.rejected_quantity) FILTER (WHERE gl.posted_at IS NOT NULL), 0)::numeric(16,4) AS rejected_quantity,
+                   COALESCE(SUM(gl.held_quantity) FILTER (WHERE gl.posted_at IS NOT NULL), 0)::numeric(16,4) AS held_quantity
+              FROM br06_grn_lines gl WHERE gl.grn_id = g.id) cnt ON true
+         WHERE g.po_id = $1 ORDER BY g.received_at DESC, g.grn_number DESC`, [id]),
+    ]);
+    return {
+      ...po.rows[0], ...hdr.rows[0],
+      acknowledgement: ack.rows[0] ?? null, shipments: shipments.rows, grns: grns.rows, lines: lines.rows,
+    };
   }
 
   async listPos(jobId: string, actor: Actor) {
