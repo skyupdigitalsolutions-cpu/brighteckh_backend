@@ -15,12 +15,14 @@ import { MaterialRequestsDeskController } from './material-requests-desk.control
 import { MaterialRequestsDeskService } from './material-requests-desk.service';
 import { PurchaseOrdersDeskController } from './purchase-orders-desk.controller';
 import { PurchaseOrdersDeskService } from './purchase-orders-desk.service';
+import { StockDeskController } from './stock-desk.controller';
+import { StockDeskService } from './stock-desk.service';
 
 /** Read endpoints (+ the unit-detail edit) for the Purchase desktop UI, plus the Sales quote worklist Stores receiving reads and BR-11 Sales & Supply desk reads. See CLAUDE.md §4i. */
 @Module({
   controllers: [PurchaseDeskBr02Controller, PurchaseDeskBr04Controller, LookupsController, PurchaseOverviewController, SalesDeskController,
-    StoresDeskController, SalesSupplyDeskController, MaterialRequestsDeskController, PurchaseOrdersDeskController],
+    StoresDeskController, SalesSupplyDeskController, MaterialRequestsDeskController, PurchaseOrdersDeskController, StockDeskController],
   providers: [PurchaseDeskService, JobProgressService, PurchaseOverviewService, SalesQuotesService, StoresDeskService, SalesSupplyDeskService,
-    MaterialRequestsDeskService, PurchaseOrdersDeskService],
+    MaterialRequestsDeskService, PurchaseOrdersDeskService, StockDeskService],
 })
 export class PurchaseDeskModule {}

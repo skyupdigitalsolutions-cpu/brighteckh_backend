@@ -424,6 +424,15 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
         id: s.out1.id, status: 'DISPATCHED', tracking_reference: `AWB-${RUN}`, lines_with_packing_evidence: 1, customer_name: `IT Customer ${RUN}`,
       });
       expect(await deskRow('orders', s.soNumber)).toMatchObject({ lines_reserved: 1, lines_shipped: 0, outward_count: 1 });
+      // Stock desk journal: the sale issue resolves to its SOUT number and sales order; it leaves the company (no destination).
+      const sj = ok(await api('get', `/stock/journal?reference_id=${s.oline1}`, P()));
+      expect(sj.rows).toEqual([expect.objectContaining({
+        id: d.lines[0].inventory_issue_ref, movement_type: 'ISSUE', reference_kind: 'BR11_SALE_ISSUE', reference_document: 'SALES_OUTWARD',
+        reference_label: d.outward_number, outward_id: s.out1.id, sales_order_id: s.so.id, sales_order_number: s.soNumber,
+        from_location_role: 'MAIN_STORE', to_location_role: null, job_id: null, grn_id: null, actor_name: `IT PUR ${RUN}`,
+      })]);
+      expect(ok(await api('get', `/stock/journal?search=${d.outward_number}`, P())).total).toBe(1);
+      fails(await api('get', `/stock/journal?reference_id=${s.oline1}`, S()), 403);
     });
 
     it('C02: a reservation ships once; a dispatched batch is immutable', async () => {

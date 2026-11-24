@@ -712,6 +712,32 @@ BR-06 `GET /purchase-orders/:id`. Tests: `test/flow.e2e-spec.ts` (BR-06 block, "
 2. No cancel endpoint (no cancelled_at / reason) and no CLOSED rule (no closed_at): those statuses are never reached.
 3. "Acknowledged on" / "Shipped on" are server-stamped (now()), not inputs.
 
+**Purchase Stock desk (23 Nov 2026, no migration):** `src/modules/purchase-desk/stock-desk.*`. Tests: `test/stock-desk.e2e-spec.ts`
+(+ ledger trail in `test/flow.e2e-spec.ts` BR-07 block, sale issue in `test/br11.e2e-spec.ts` C03). For the Purchase "Stock" pill.
+**PURCHASE only, read-only** (product owner 23 Nov 2026). Availability keeps using `GET /inventory/availability` (unchanged).
+Purchase-desk conventions (`page`, `page_size` <= 100, csv filters, unknown params 400). Quantities are decimal strings (trim_scale).
+- `GET /stock/journal`: the company's `fdn_inventory_journal` rows, newest first, + item code / name, from / to location role + code,
+  actor name and the reference resolved by kind: BR06_GRN_LINE / BR06_SUPPLIER_RETURN -> GRN (+ PO, job or SO of the PO);
+  BR07_ISSUE / CONSUME / RETURN -> job; BR11_SALE_ISSUE -> SOUT batch + sales order (`reference_document` GRN / JOB /
+  SALES_OUTWARD, `reference_label` = that number; null if unresolvable). Filters `movement_type`, `reference_kind`, `location_role`
+  (from OR to), `reference_id`, `item_id`, `from` / `to` (YYYY-MM-DD, company timezone, inclusive), `search` (item, GRN / PO / job /
+  SOUT / SO number, actor). `counts_by_movement_type` over company + `search` only. Never returns idempotency keys.
+- `GET /stock/items`: Item Master (global, all statuses) + created / approved-by names + `bom_usage_count` (assemblies whose LATEST BOM
+  revision has the item). Filters `status`, `record_type`, `stock_flag`, `search` (code, name, short description); `counts_by_status`,
+  `counts_by_record_type` over `search` only. `GET /stock/items/:id`: + released-by, tracking flags, `used_in[]` (latest revision per
+  assembly) and `availability` for the caller's company {allocatable = fdn_allocatable, reserved = Σ ACTIVE reservations, balances}.
+- `GET /stock/assemblies`: Assembly Master + `latest_bom_revision`, `bom_lines`, `draft_item_lines` (item not APPROVED / ACTIVE).
+  `GET /stock/assemblies/:id?revision=`: + `bom_revisions[]` and the lines of that revision (default latest) with item status /
+  `item_requestable`.
+
+**OPEN DECISIONS (Purchase Stock desk, flagged, not resolved):**
+1. Roles: PURCHASE only; Stores / Management may need the journal and availability (inventory reads stay role-open, unchanged).
+2. No hold concept in the ledger (Figma "− holds n"); IN_TRANSIT balances carry no PO link; no ADJUST writer / adjustment document.
+3. Assembly Master has no make / model columns (UI shows `oem_compatibility`); BOM revisions have no draft / released status and no
+   "new revision" action (revision = the number lines were added under).
+4. Masters writes (`POST /masters/items|assemblies`, `/assemblies/:id/bom`) still have no role guard (approve is PURCHASE); the Stock
+   pill does not expose them.
+
 **OPEN DECISIONS (Sales desk reads, flagged, not resolved):**
 1. Not built: a responses-feed endpoint (G-S3), a Sales overview/activity endpoint (G-S4), send recipients/email (send has no body).
 2. ~~`POST /jobs/:id/quote-responses` is not hardened server-side~~ — RESOLVED 16 Nov 2026 (product owner approved):

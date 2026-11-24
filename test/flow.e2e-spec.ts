@@ -678,6 +678,41 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       });
     });
 
+    it('Stock desk: GET /stock/journal resolves the item trail to its GRN / job numbers, locations and actors', async () => {
+      const refs = (await c.query(
+        `SELECT g.grn_number, p.po_number, j.job_number, i.item_code
+           FROM br06_grns g JOIN br06_supplier_purchase_orders p ON p.id=g.po_id JOIN service_jobs j ON j.id=$2
+           JOIN fdn_item_master i ON i.id=$3 WHERE g.id=$1`, [s.grn, s.job, s.item])).rows[0];
+      const j = ok(await api('get', `/stock/journal?item_id=${s.item}&page_size=100`, P()));
+      const trail = j.rows.map((r: any) => [r.movement_type, r.qty, r.from_location_role, r.to_location_role, r.reference_kind,
+        r.reference_document, r.reference_label, r.actor_name].join('|')).sort();
+      expect(trail).toEqual([
+        `CONSUME|5|ENGINEER_HELD|CONSUMED|BR07_CONSUME|JOB|${refs.job_number}|IT ENG ${RUN}`,
+        `ISSUE|8|MAIN_STORE|ENGINEER_HELD|BR07_ISSUE|JOB|${refs.job_number}|IT PUR ${RUN}`,
+        `RECEIPT|2||QUARANTINE|BR06_GRN_LINE|GRN|${refs.grn_number}|IT SQ ${RUN}`,
+        `RECEIPT|8||MAIN_STORE|BR06_GRN_LINE|GRN|${refs.grn_number}|IT SQ ${RUN}`,
+        `RETURN|3|ENGINEER_HELD|MAIN_STORE|BR07_RETURN|JOB|${refs.job_number}|IT PUR ${RUN}`,
+      ]);
+      for (const r of j.rows) expect(r).toMatchObject({ job_id: s.job, job_number: refs.job_number, item_code: refs.item_code, status: 'POSTED' });
+      for (const r of j.rows.filter((x: any) => x.reference_document === 'GRN')) {
+        expect(r).toMatchObject({ grn_id: s.grn, po_id: s.po, po_number: refs.po_number, reference_id: s.grnLine });
+      }
+      const iss = j.rows.find((r: any) => r.movement_type === 'ISSUE');
+      expect(iss).toMatchObject({ reference_id: s.issue, grn_id: null, po_id: null, outward_id: null, sales_order_id: null });
+
+      // filters + search by document number
+      const byJob = ok(await api('get', `/stock/journal?search=${refs.job_number}&item_id=${s.item}`, P()));
+      expect(byJob.total).toBe(5);
+      const byGrn = ok(await api('get', `/stock/journal?search=${refs.grn_number}`, P()));
+      expect(byGrn.rows.map((r: any) => r.movement_type)).toEqual(['RECEIPT', 'RECEIPT']);
+      expect(byGrn.counts_by_movement_type).toMatchObject({ RECEIPT: 2, ISSUE: 0, CONSUME: 0, RETURN: 0 });
+      expect(ok(await api('get', `/stock/journal?item_id=${s.item}&reference_kind=BR07_ISSUE,BR07_RETURN`, P())).total).toBe(2);
+      expect(ok(await api('get', `/stock/journal?item_id=${s.item}&location_role=ENGINEER_HELD`, P())).total).toBe(3);
+      expect(ok(await api('get', `/stock/journal?item_id=${s.item}&reference_id=${s.issue}`, P())).rows.map((r: any) => r.movement_type))
+        .toEqual(['ISSUE']);
+      fails(await api('get', `/stock/journal?item_id=${s.item}`, f.stores), 403);
+    });
+
     const startCycle = async () =>
       ok(await api('post', `/jobs/${s.job}/test-runs`, E(), { test_procedure: 'Load test 2h @ rated current' })).id;
     const result = (id: string, r: 'PASS' | 'FAIL', actor = E()) =>
