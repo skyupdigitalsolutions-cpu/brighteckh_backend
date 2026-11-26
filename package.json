@@ -24,7 +24,8 @@
     "seed:demo-purchase": "node --env-file=.env scripts/seed-demo-purchase.js",
     "seed:demo-stores": "node --env-file=.env scripts/seed-demo-stores.js",
     "seed:demo-mis": "node --env-file=.env scripts/seed-demo-mis.js",
-    "seed:demo-supply": "node --env-file=.env scripts/seed-demo-supply.js"
+    "seed:demo-supply": "node --env-file=.env scripts/seed-demo-supply.js",
+    "seed:client-config": "node --env-file=.env scripts/seed-client-config.js"
   },
   "dependencies": {
     "@fastify/multipart": "^8.3.1",

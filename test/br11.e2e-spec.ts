@@ -17,6 +17,12 @@ import {
  * rate) is assigned TEMPORARILY by this suite and restored afterwards -- these are
  * test values, not decisions.
  */
+// "Now" for evidence / POD timestamps, 5 s back: the DB refuses future times (received_at > now()), and a client clock
+// running ahead of the DB server (seen: ~0.8 s on the dev machine vs Neon) would otherwise make "now" look future.
+const pastIso = () => new Date(Date.now() - 5000).toISOString();
+// POD time must lie between the outward's dispatch and the DB's now(): use the server's own dispatch time (+1 ms).
+let podIso: (outwardId: string) => Promise<string>;
+
 describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> POD -> BR-08 invoice -> closure)', () => {
   let c: Client;
   let f: Fixtures;
@@ -38,6 +44,8 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
 
   beforeAll(async () => {
     c = await db();
+    podIso = async (id) => new Date((await c.query(
+      `SELECT dispatched_at + interval '1 millisecond' AS t FROM br11_outward_batches WHERE id=$1`, [id])).rows[0].t).toISOString();
     f = await setupFixtures(c);
     s.item = await createItem(f.purchase, true, 'sale-product');
     s.draftItem = await createItem(f.purchase, false, 'sale-unapproved');
@@ -73,9 +81,11 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       await c.query(`DELETE FROM br11_company_policies WHERE company_id=$1`, [f.companyId]);
       for (const r of savedPolicy) {
         await c.query(
-          `INSERT INTO br11_company_policies(company_id,invoice_trigger,requires_full_payment_for_closure,note,updated_by_id,updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [r.company_id, r.invoice_trigger, r.requires_full_payment_for_closure, r.note, r.updated_by_id, r.updated_at]);
+          `INSERT INTO br11_company_policies(company_id,invoice_trigger,requires_full_payment_for_closure,note,updated_by_id,updated_at,
+             advance_policy)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [r.company_id, r.invoice_trigger, r.requires_full_payment_for_closure, r.note, r.updated_by_id, r.updated_at,
+            r.advance_policy ?? null]);
       }
       await c.query(`DELETE FROM br08_gst_rate_config WHERE quote_line_type='PRODUCT_SALE'`);
       for (const r of savedGst) {
@@ -214,9 +224,9 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
 
     it('verification: PURCHASE only, needs verified customer evidence; assigns SO-<CODE>-000001', async () => {
       fails(await api('post', `/sales-orders/${s.so.id}/authorisations`, S(), {
-        source_kind: 'EMAIL_AUTHORISATION', received_at: new Date().toISOString(), evidence_uri: 's3://it/po.eml' }), 400, /check/i);
+        source_kind: 'EMAIL_AUTHORISATION', received_at: pastIso(), evidence_uri: 's3://it/po.eml' }), 400, /check/i);
       const ev = ok(await api('post', `/sales-orders/${s.so.id}/authorisations`, S(), {
-        source_kind: 'CUSTOMER_PO', source_reference: `PO-${RUN}`, received_at: new Date().toISOString(), evidence_uri: `s3://it/po-${RUN}.pdf` }));
+        source_kind: 'CUSTOMER_PO', source_reference: `PO-${RUN}`, received_at: pastIso(), evidence_uri: `s3://it/po-${RUN}.pdf` }));
       fails(await api('post', `/sales-orders/${s.so.id}/verify`, S(), { authorisation_event_id: ev.id }), 403);
       const v = ok(await api('post', `/sales-orders/${s.so.id}/verify`, P(), { authorisation_event_id: ev.id }));
       expect(v.status).toBe('VERIFIED');
@@ -441,7 +451,7 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
     });
 
     it('C04: POD is line-specific, <= shipped; order becomes PART_DELIVERED (derived, not set)', async () => {
-      const pod = { delivery_status: 'DELIVERED', received_by_name: 'IT Stores', delivered_at: new Date().toISOString(), pod_uri: `s3://it/pod1-${RUN}.pdf` };
+      const pod = { delivery_status: 'DELIVERED', received_by_name: 'IT Stores', delivered_at: await podIso(s.out1.id), pod_uri: `s3://it/pod1-${RUN}.pdf` };
       fails(await api('post', `/sales-outward-lines/${s.oline1}/delivery`, P(), { ...pod, delivered_qty: 5 }), 400, /exceeds the shipped/);
       fails(await api('post', `/sales-outward-lines/${s.oline1}/delivery`, P(), { delivery_status: 'DELIVERED', delivered_qty: 4 }), 400);
       ok(await api('post', `/sales-outward-lines/${s.oline1}/delivery`, P(), { ...pod, delivered_qty: 4 }));
@@ -541,7 +551,7 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
     it('an approved CANCELLATION of an untouched verified order cancels it (DB-derived)', async () => {
       const so2 = ok(await api('post', '/sales-orders', S(), { quote_revision_id: s.rev1.id, lines: [{ quote_line_id: s.qline.id, accepted_qty: 1 }] }));
       const ev = ok(await api('post', `/sales-orders/${so2.id}/authorisations`, S(), {
-        source_kind: 'ORDER_CONFIRMATION', received_at: new Date().toISOString(), evidence_uri: `s3://it/oc-${RUN}.pdf` }));
+        source_kind: 'ORDER_CONFIRMATION', received_at: pastIso(), evidence_uri: `s3://it/oc-${RUN}.pdf` }));
       ok(await api('post', `/sales-orders/${so2.id}/verify`, P(), { authorisation_event_id: ev.id }));
       const cr = ok(await api('post', `/sales-orders/${so2.id}/change-requests`, S(), { change_kind: 'CANCELLATION', reason: 'duplicate order' }));
       const d = ok(await api('post', `/sales-change-requests/${cr.id}/decide`, P(), { decision: 'APPROVED' }));
@@ -562,7 +572,7 @@ describe('BR-11 Sales & Supply (enquiry -> quote -> SO -> reserve -> outward -> 
       ok(await api('post', `/sales-outward-lines/${l2}/pick`, P(), { verification_note: 'qty 2 checked' }));
       ok(await api('post', `/sales-outwards/${out2.id}/dispatch`, P(), {}));
       ok(await api('post', `/sales-outward-lines/${l2}/delivery`, P(), {
-        delivery_status: 'DELIVERED', delivered_qty: 2, received_by_name: 'IT driver', delivered_at: new Date().toISOString(), pod_uri: `s3://it/pod2-${RUN}.pdf` }));
+        delivery_status: 'DELIVERED', delivered_qty: 2, received_by_name: 'IT driver', delivered_at: await podIso(out2.id), pod_uri: `s3://it/pod2-${RUN}.pdf` }));
       const so = ok(await api('get', `/sales-orders/${s.so.id}`, S()));
       expect(so.status).toBe('DELIVERED');
       expect(await balances(f.companyId, s.item, P())).toMatchObject({ main: 0, allocatable: 0 });

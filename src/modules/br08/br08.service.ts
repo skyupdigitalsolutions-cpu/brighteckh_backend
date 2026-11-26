@@ -165,6 +165,8 @@ export class Br08Service {
 
   async previewInvoice(dto: InvoiceRequestDto, actor: Actor) {
     try {
+      // one invoice per dispatch (client-confirmed 26 Nov 2026; DB trigger enforces it on issue too)
+      await this.pg.query(`SELECT br08_assert_single_dispatch($1::uuid[])`, [dto.job_ids]);
       const r = await this.pg.query(`SELECT br08_build_invoice($1,$2::uuid[],$3) AS d`,
         [actor.companyId, dto.job_ids, dto.credit_days ?? null]);
       return { ...r.rows[0].d, invoice_number: null, preview: true };
@@ -175,6 +177,7 @@ export class Br08Service {
     try {
       const id = await this.pg.tx(async (client) => {
         for (const jobId of dto.job_ids) await this.owned(client, 'service_jobs', jobId, actor);
+        await client.query(`SELECT br08_assert_single_dispatch($1::uuid[])`, [dto.job_ids]);
         const invId = (await client.query(`SELECT br08_issue_invoice($1,$2,$3::uuid[],$4) AS id`,
           [actor.companyId, actor.id, dto.job_ids, dto.credit_days ?? null])).rows[0].id;
         const inv = (await client.query(`SELECT * FROM br08_invoices WHERE id=$1`, [invId])).rows[0];

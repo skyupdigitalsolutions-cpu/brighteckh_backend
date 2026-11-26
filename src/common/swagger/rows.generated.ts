@@ -2006,8 +2006,8 @@ export class Br08GstRateConfigRow {
   id!: string;
   @ApiProperty({ enum: ["REPAIR_SERVICE","MATERIAL","LABOUR","INSPECTION","TESTING","EXTERNAL","FREIGHT","OTHER","PRODUCT_SALE"], nullable: true })
   quote_line_type!: string | null;
-  @ApiProperty({ type: "string" })
-  hsn_sac!: string;
+  @ApiProperty({ type: "string", nullable: true })
+  hsn_sac!: string | null;
   @ApiProperty({ type: "string", format: "decimal", description: "numeric, returned as decimal string" })
   cgst_rate!: string;
   @ApiProperty({ type: "string", format: "decimal", description: "numeric, returned as decimal string" })
@@ -2290,7 +2290,7 @@ export class Br09CaseSlaRow {
 export class Br09AuthorityConfigRow {
   @ApiProperty({ type: "string", format: "uuid" })
   company_id!: string;
-  @ApiProperty({ enum: ["CLAIM_DECISION","GOODWILL_APPROVAL","REFUND_REPLACEMENT_REVIEW"] })
+  @ApiProperty({ enum: ["CLAIM_DECISION","GOODWILL_APPROVAL","REFUND_REPLACEMENT_REVIEW","REPLACEMENT_APPROVAL"] })
   decision_kind!: string;
   @ApiProperty({ enum: ["PURCHASE","ENGINEER","SALES","STORES_QUALITY","EXTERNAL_COORD","FINANCE","MANAGEMENT","SYSTEM_ADMIN"], nullable: true })
   approver_role_code!: string | null;
@@ -2648,6 +2648,38 @@ export class Br10ReportAccessLogRow {
   occurred_at!: string;
 }
 
+/** Row of `company_policy_config` as returned by SELECT * */
+export class CompanyPolicyConfigRow {
+  @ApiProperty({ type: "string", format: "uuid" })
+  company_id!: string;
+  @ApiProperty({ type: "string", format: "decimal", nullable: true, description: "numeric, returned as decimal string" })
+  max_discount_percent!: string | null;
+  @ApiProperty({ type: "integer", nullable: true })
+  customer_return_window_days!: number | null;
+  @ApiProperty({ type: "integer", nullable: true })
+  supplier_return_window_min_days!: number | null;
+  @ApiProperty({ type: "integer", nullable: true })
+  supplier_return_window_max_days!: number | null;
+  @ApiProperty({ enum: ["CUSTOMER","COMPANY"], nullable: true })
+  return_freight_payer!: string | null;
+  @ApiProperty({ type: "integer", nullable: true })
+  quote_followup_days!: number | null;
+  @ApiProperty({ type: "integer", nullable: true })
+  rma_turnaround_target_working_days!: number | null;
+  @ApiProperty({ enum: ["PURCHASE","ENGINEER","SALES","STORES_QUALITY","EXTERNAL_COORD","FINANCE","MANAGEMENT","SYSTEM_ADMIN"], nullable: true })
+  customer_return_authority_role!: string | null;
+  @ApiProperty({ enum: ["PURCHASE","ENGINEER","SALES","STORES_QUALITY","EXTERNAL_COORD","FINANCE","MANAGEMENT","SYSTEM_ADMIN"], nullable: true })
+  supplier_refund_authority_role!: string | null;
+  @ApiProperty({ enum: ["PURCHASE","ENGINEER","SALES","STORES_QUALITY","EXTERNAL_COORD","FINANCE","MANAGEMENT","SYSTEM_ADMIN"], nullable: true })
+  kpi_signoff_authority_role!: string | null;
+  @ApiProperty({ type: "string", nullable: true })
+  note!: string | null;
+  @ApiProperty({ type: "string", format: "uuid", nullable: true })
+  updated_by_id!: string | null;
+  @ApiProperty({ type: "string", format: "date-time" })
+  updated_at!: string;
+}
+
 /** Row of `br11_company_policies` as returned by SELECT * */
 export class Br11CompanyPoliciesRow {
   @ApiProperty({ type: "string", format: "uuid" })
@@ -2662,6 +2694,8 @@ export class Br11CompanyPoliciesRow {
   updated_by_id!: string;
   @ApiProperty({ type: "string", format: "date-time" })
   updated_at!: string;
+  @ApiProperty({ enum: ["NONE","PER_ORDER"], nullable: true })
+  advance_policy!: string | null;
 }
 
 /** Row of `br11_sales_enquiries` as returned by SELECT * */

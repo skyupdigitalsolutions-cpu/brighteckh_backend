@@ -238,20 +238,40 @@ describe('Job lifecycle integrity (BR-02 -> BR-07)', () => {
       { line_type: 'REPAIR_SERVICE', line_description: 'Repair', quantity: 1, uom: 'NOS', net_unit_price_pre_tax: repair },
     ];
 
-    it('<=10% discount needs no extra approval', async () => {
+    // Threshold = company_policy_config.max_discount_percent (migration 026; client-confirmed 5%, unset = 10%).
+    it('discount within the threshold (5% off) needs no extra approval', async () => {
       const r = ok(await api('post', `/quotes/${s.quote}/revise`, P(), { revision_reason: '5% off', lines: revLines(910) }));
       expect(Number(r.revision.revised_pre_tax)).toBe(1710);
     });
 
-    it('>10% discount is blocked without an explicit approver + reason', async () => {
+    it('discount over the threshold (50% off) is blocked without an explicit approver + reason', async () => {
       fails(await api('post', `/quotes/${s.quote}/revise`, P(), { revision_reason: '50% off', lines: revLines(100) }),
-        400, /10%/);
+        400, /more than [\d.]+% below the originally authorised price/);
       fails(await api('post', `/quotes/${s.quote}/revise`, P(), {
         revision_reason: '50% off', lines: revLines(100), higher_discount_approved_by_id: f.purchase2,
       }), 400, /higher_discount_reason/);
     });
 
-    it('>10% discount succeeds with explicit approver + reason, recorded on the revision', async () => {
+    it('the company threshold is read at insert: 6% off is blocked at 5% and allowed at 10% (config restored)', async () => {
+      const saved = (await c.query(`SELECT * FROM company_policy_config WHERE company_id=$1`, [f.companyId])).rows;
+      try {
+        ok(await api('put', '/company-config', f.admin, { max_discount_percent: 5 }));
+        fails(await api('post', `/quotes/${s.quote}/revise`, P(), { revision_reason: '6% off', lines: revLines(892) }),
+          400, /more than 5% below/);
+        // 10%: the DB function alone (no revision is written by this test)
+        ok(await api('put', '/company-config', f.admin, { max_discount_percent: 10 }));
+        expect(Number((await c.query(`SELECT br04_max_discount_percent($1) AS v`, [f.companyId])).rows[0].v)).toBe(10);
+      } finally {
+        await c.query(`DELETE FROM company_policy_config WHERE company_id=$1`, [f.companyId]);
+        for (const r of saved) {
+          const cols = Object.keys(r);
+          await c.query(`INSERT INTO company_policy_config(${cols.join(',')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(',')})`,
+            cols.map((k) => r[k]));
+        }
+      }
+    });
+
+    it('discount over the threshold succeeds with explicit approver + reason, recorded on the revision', async () => {
       const r = ok(await api('post', `/quotes/${s.quote}/revise`, P(), {
         revision_reason: '50% off', lines: revLines(100),
         higher_discount_approved_by_id: f.purchase2, higher_discount_reason: 'key account',

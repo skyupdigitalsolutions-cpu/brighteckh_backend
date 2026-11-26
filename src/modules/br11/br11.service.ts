@@ -70,7 +70,8 @@ export class Br11Service {
         product_invoicing: !p?.invoice_trigger || p.invoice_trigger === 'MILESTONE' || !gst.rows[0],
         order_closure: p?.requires_full_payment_for_closure == null,
       },
-      note: 'CLIENT-UNCONFIRMED: invoice trigger (11C-07), payment-before-closure (11C-09) and product GST rate (P-12) are not defaulted.',
+      note: 'Invoice trigger (11C-07), payment-before-closure (11C-09), advance policy (11B-02) and product GST rate (P-12) are '
+        + 'never defaulted: unset = blocked. Product HSN comes from each item (fdn_item_master.hsn_tax) when the rate row has none.',
     };
   }
 
@@ -78,17 +79,19 @@ export class Br11Service {
     await this.write(async (c) => {
       const before = (await c.query(`SELECT * FROM br11_company_policies WHERE company_id=$1`, [actor.companyId])).rows[0];
       const after = (await c.query(
-        `INSERT INTO br11_company_policies(company_id,invoice_trigger,requires_full_payment_for_closure,note,updated_by_id)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO br11_company_policies(company_id,invoice_trigger,requires_full_payment_for_closure,note,updated_by_id,advance_policy)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (company_id) DO UPDATE SET invoice_trigger=EXCLUDED.invoice_trigger,
            requires_full_payment_for_closure=EXCLUDED.requires_full_payment_for_closure, note=EXCLUDED.note,
+           advance_policy=EXCLUDED.advance_policy,
            updated_by_id=EXCLUDED.updated_by_id, updated_at=now()
          RETURNING *`,
         [actor.companyId,
           dto.invoice_trigger !== undefined ? dto.invoice_trigger : (before?.invoice_trigger ?? null),
           dto.requires_full_payment_for_closure !== undefined ? dto.requires_full_payment_for_closure
             : (before?.requires_full_payment_for_closure ?? null),
-          dto.note ?? null, actor.id])).rows[0];
+          dto.note ?? null, actor.id,
+          dto.advance_policy !== undefined ? dto.advance_policy : (before?.advance_policy ?? null)])).rows[0];
       await this.audit(c, actor, 'br11_company_policies', actor.companyId, 'BR11_POLICY_CONFIGURED', before ?? null, after);
     });
     return this.getConfig(actor);

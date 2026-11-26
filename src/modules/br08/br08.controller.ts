@@ -104,7 +104,7 @@ export class Br08Controller {
 
   @Post('invoices')
   @Roles(Role.FINANCE)
-  @ApiOperation({ summary: 'Issue a tax invoice (immutable). Lines = authorised quote; GST from place of supply; D6 gate.' })
+  @ApiOperation({ summary: 'Issue a tax invoice (immutable). Lines = authorised quote; GST from place of supply; D6 gate. One invoice per dispatch: all jobs from one dispatch batch.' })
   @ApiCreatedResponse({ type: InvoiceDetail })
   issue(@Body() dto: InvoiceRequestDto, @CurrentActor() actor: Actor) {
     return this.svc.issueInvoice(dto, actor);

@@ -516,13 +516,12 @@ export class Br04Service {
         const total = this.lineTotal(dto.lines);
         await this.validateOfferRefs(client, actor.companyId, dto.reference_offer_line_id, dto.procurement_offer_line_id);
 
-        // UNCONFIRMED against CLAUDE.md section 6 ("no formula ... applies any %"):
-        // br04_customer_quote_revisions_check4 in migration 001 blocks any revision
-        // more than 10% below the original authorised price unless an explicit
-        // higher-discount approver + reason is recorded. The API never fills these
-        // in on Purchase's behalf -- the caller must explicitly name an approver.
-        // If omitted and the discount exceeds 10%, the DB CHECK rejects the insert
-        // and that is mapped to a clear message below.
+        // Discount gate (client-confirmed 26 Nov 2026: 5%): trg_br04_discount_threshold
+        // (migration 026, replaces the 001 10% CHECK) blocks any revision more than
+        // company_policy_config.max_discount_percent (unset = 10%) below the original
+        // authorised price unless an explicit higher-discount approver + reason is
+        // recorded. The API never fills these in on Purchase's behalf -- the caller
+        // must explicitly name an approver. The trigger's message is returned as a 400.
         let higherDiscountApprovedAt: string | null = null;
         if (dto.higher_discount_approved_by_id) {
           const approver = await client.query<{ is_active: boolean }>(
@@ -567,11 +566,6 @@ export class Br04Service {
       });
     } catch (e) {
       if (e instanceof NotFoundException || e instanceof ForbiddenException || e instanceof BadRequestException) throw e;
-      if ((e as any)?.constraint === 'br04_customer_quote_revisions_check4') {
-        throw new BadRequestException(
-          'revision is more than 10% below the originally authorised price; needs explicit higher-discount approval + reason',
-        );
-      }
       this.mapErr(e);
     }
   }

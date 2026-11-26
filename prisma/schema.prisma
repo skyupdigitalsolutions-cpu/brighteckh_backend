@@ -1970,7 +1970,7 @@ model br08_fy_counters {
 model br08_gst_rate_config {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   quote_line_type String?  @db.VarChar(24)
-  hsn_sac         String   @db.VarChar(8)
+  hsn_sac         String?  @db.VarChar(8)
   cgst_rate       Decimal  @db.Decimal(5, 2)
   sgst_rate       Decimal  @db.Decimal(5, 2)
   igst_rate       Decimal  @db.Decimal(5, 2)
@@ -2625,6 +2625,7 @@ model br11_company_policies {
   note                              String?
   updated_by_id                     String         @db.Uuid
   updated_at                        DateTime       @default(now()) @db.Timestamptz(6)
+  advance_policy                    String?        @db.VarChar(10)
   legal_entities                    legal_entities @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   employees                         employees      @relation(fields: [company_id, updated_by_id], references: [company_id, id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -3337,6 +3338,7 @@ model employees {
   br11_sales_orders_br11_sales_orders_company_id_created_by_idToemployees                                       br11_sales_orders[]                   @relation("br11_sales_orders_company_id_created_by_idToemployees")
   br11_sales_orders_br11_sales_orders_company_id_verified_by_idToemployees                                      br11_sales_orders[]                   @relation("br11_sales_orders_company_id_verified_by_idToemployees")
   calendar_holidays                                                                                             calendar_holidays[]
+  company_policy_config                                                                                         company_policy_config[]
   custody_movements_custody_movements_from_employee_idToemployees                                               custody_movements[]                   @relation("custody_movements_from_employee_idToemployees")
   custody_movements_custody_movements_recorded_by_idToemployees                                                 custody_movements[]                   @relation("custody_movements_recorded_by_idToemployees")
   custody_movements_custody_movements_to_employee_idToemployees                                                 custody_movements[]                   @relation("custody_movements_to_employee_idToemployees")
@@ -3997,6 +3999,7 @@ model legal_entities {
   br11_sales_orders                                                       br11_sales_orders[]
   communication_events                                                    communication_events[]
   company_number_counters                                                 company_number_counters[]
+  company_policy_config                                                   company_policy_config?
   custody_locations                                                       custody_locations[]
   customers                                                               customers[]
   employees                                                               employees[]
@@ -4213,4 +4216,24 @@ model file_uploads {
   employees      employees      @relation(fields: [uploaded_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([company_id, created_at(sort: Desc)], map: "file_uploads_company_created_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model company_policy_config {
+  company_id                         String         @id @db.Uuid
+  max_discount_percent               Decimal?       @db.Decimal(5, 2)
+  customer_return_window_days        Int?
+  supplier_return_window_min_days    Int?
+  supplier_return_window_max_days    Int?
+  return_freight_payer               String?        @db.VarChar(10)
+  quote_followup_days                Int?
+  rma_turnaround_target_working_days Int?
+  customer_return_authority_role     String?        @db.VarChar(40)
+  supplier_refund_authority_role     String?        @db.VarChar(40)
+  kpi_signoff_authority_role         String?        @db.VarChar(40)
+  note                               String?
+  updated_by_id                      String?        @db.Uuid
+  updated_at                         DateTime       @default(now()) @db.Timestamptz(6)
+  legal_entities                     legal_entities @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  employees                          employees?     @relation(fields: [updated_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }

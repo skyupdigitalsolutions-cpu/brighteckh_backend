@@ -241,8 +241,9 @@ async function inventory(q: Q, ent: Entitlement): Promise<ReportResult> {
   };
 }
 
-const AGING = `CASE WHEN d.days_overdue <= 0 THEN 'NOT_DUE' WHEN d.days_overdue <= 30 THEN '1-30'
-                    WHEN d.days_overdue <= 60 THEN '31-60' WHEN d.days_overdue <= 90 THEN '61-90' ELSE '90+' END`;
+// Bucket edges client-confirmed 26 Nov 2026: 0-15 / 16-30 / 31-60 / 60+ (days past the due date; due today = 0).
+const AGING = `CASE WHEN d.days_overdue < 0 THEN 'NOT_DUE' WHEN d.days_overdue <= 15 THEN '0-15'
+                    WHEN d.days_overdue <= 30 THEN '16-30' WHEN d.days_overdue <= 60 THEN '31-60' ELSE '60+' END`;
 
 async function receivables(q: Q, ent: Entitlement): Promise<ReportResult> {
   // Posted invoices + confirmed allocations only (BR-08 has no drafts; cancelled excluded).
@@ -268,7 +269,7 @@ async function receivables(q: Q, ent: Entitlement): Promise<ReportResult> {
     },
     rows,
     readiness: [
-      { item: 'Aging buckets', status: 'DRAFT', note: 'NOT_DUE / 1-30 / 31-60 / 61-90 / 90+ days past due date -- bucket edges not client-confirmed' },
+      { item: 'Aging buckets', status: 'CONFIRMED', note: 'NOT_DUE / 0-15 / 16-30 / 31-60 / 60+ days past due date (edges client-confirmed 26 Nov 2026; measured from the due date)' },
       { item: 'TDS', status: 'NOT_MODELLED', note: 'BR-08 open decision 6: TDS short-payments stay outstanding' },
     ],
   };

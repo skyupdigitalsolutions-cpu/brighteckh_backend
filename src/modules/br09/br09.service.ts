@@ -318,7 +318,9 @@ export class Br09Service {
       authorities: AUTHORITY_KINDS.map((k) => ({
         decision_kind: k,
         approver_role_code: configured.get(k)?.approver_role_code ?? null,
-        status: configured.get(k)?.approver_role_code ? 'CONFIGURED' : 'CLIENT-UNCONFIRMED (decisions blocked)',
+        status: configured.get(k)?.approver_role_code ? 'CONFIGURED'
+          : k === 'REPLACEMENT_APPROVAL' ? 'NOT SET (REFUND_REPLACEMENT_REVIEW applies)'
+          : 'CLIENT-UNCONFIRMED (decisions blocked)',
         note: configured.get(k)?.note ?? null, updated_at: configured.get(k)?.updated_at ?? null,
       })),
       sla_targets: sla.rows,

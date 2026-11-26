@@ -155,7 +155,7 @@ export class SupplyOrderRow extends SupplyCustomer {
   @ApiProperty({ description: 'a br11_order_payment_conditions row exists (11B-02: required before reservation / sourcing)' })
   payment_terms_recorded!: boolean;
   @ApiProperty({ type: 'string', nullable: true, enum: ['NOT_REQUIRED', 'FIXED_AMOUNT', 'PERCENTAGE', 'FULL'] }) advance_kind!: string | null;
-  @ApiProperty({ description: 'advance_kind NOT_REQUIRED, or Finance confirmed the advance (finance_confirmed_at set)' }) advance_cleared!: boolean;
+  @ApiProperty({ description: 'advance_kind NOT_REQUIRED, or Finance confirmed the advance (finance_confirmed_at set), or no terms recorded and the company advance_policy is NONE' }) advance_cleared!: boolean;
   @ApiProperty({ type: 'string', format: 'int64', nullable: true, description: 'required advance (paise); null when NOT_REQUIRED or no terms' })
   advance_required_amount_paise!: string | null;
   @ApiProperty({ type: 'string', format: 'decimal', nullable: true, description: 'required_percent (PERCENTAGE terms only)' })

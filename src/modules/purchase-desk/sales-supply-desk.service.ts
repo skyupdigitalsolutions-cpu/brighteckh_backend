@@ -116,7 +116,8 @@ export class SalesSupplyDeskService {
              (SELECT count(*)::int FROM br11_order_authorisation_events a
                WHERE a.sales_order_id = o.id AND a.verified_status = 'PENDING') AS pending_authorisations,
              (pc.id IS NOT NULL) AS payment_terms_recorded, pc.advance_kind,
-             (pc.advance_kind = 'NOT_REQUIRED' OR pc.finance_confirmed_at IS NOT NULL) IS TRUE AS advance_cleared,
+             (pc.advance_kind = 'NOT_REQUIRED' OR pc.finance_confirmed_at IS NOT NULL
+              OR (pc.id IS NULL AND pol.advance_policy = 'NONE')) IS TRUE AS advance_cleared,
              pc.required_amount_paise::text AS advance_required_amount_paise, pc.required_percent::text AS advance_required_percent,
              pc.recorded_at AS payment_terms_recorded_at, prb.full_name AS payment_terms_recorded_by_name,
              pc.finance_confirmed_at AS advance_confirmed_at,
@@ -134,6 +135,7 @@ export class SalesSupplyDeskService {
         LEFT JOIN LATERAL (SELECT * FROM br11_order_payment_conditions p WHERE p.sales_order_id = o.id
                             ORDER BY p.recorded_at DESC, p.id DESC LIMIT 1) pc ON true
         LEFT JOIN employees prb ON prb.id = pc.recorded_by_id
+        LEFT JOIN br11_company_policies pol ON pol.company_id = o.company_id
         JOIN LATERAL (
           SELECT COALESCE(sum(round(v.accepted_qty * v.unit_price_paise)), 0)::bigint AS order_total_paise,
                  count(*)::int AS lines_total,

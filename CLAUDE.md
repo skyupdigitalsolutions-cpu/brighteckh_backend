@@ -189,7 +189,7 @@ with the client in the build session.
 - Dispatch batch + Job Work DC + POD: **PURCHASE** †. Dispatch is customer-owned equipment —
   NOTHING is posted to the inventory ledger. Jobs need a BR-07 dispatch release; one customer
   per batch; DC is issued in the same tx that marks the batch DISPATCHED.
-- Tax invoice: **FINANCE** only. At-or-after dispatch (job must be in a DISPATCHED batch), not
+- Tax invoice: **FINANCE** only. At-or-after dispatch (job must be in a DISPATCHED batch; since 026 all jobs from ONE batch), not
   payment-first. One invoice may cover several dispatched jobs of ONE customer †; each job on
   at most one live invoice. Lines = snapshot of the job's current AUTHORISED BR-05 authorisation
   → accepted BR-04 quote revision lines † (Finance cannot edit amounts). Invoice date = today
@@ -748,6 +748,42 @@ Purchase-desk conventions (`page`, `page_size` <= 100, csv filters, unknown para
    Tests: `test/sales-quotes.e2e-spec.ts` (guards) + `test/flow.e2e-spec.ts` (BR-05, reordered to record after send).
 3. No auto-expiry on `valid_until`; a recorded response never moves BR-04 `quote_status` (stage is derived at read time).
 4. Sales sees only quotes assigned to them, never colleagues' (MANAGEMENT keeps `GET /quotes`).
+
+## 4j. Client-confirmed config (26 Nov 2026) — migration 026, src/modules/company-config, `npm run seed:client-config`
+
+The client's final answers. Values are loaded by `scripts/seed-client-config.js` (idempotent; `--create-missing-entities`
+creates CHN "Brightech Engineering" if absent); every value stays editable through the SYSTEM_ADMIN endpoint named below.
+Tests save + restore every config row they touch, so a test run never wipes the loaded values.
+- **Authorisers:** BR-09 `CLAIM_DECISION` = PURCHASE, `GOODWILL_APPROVAL` = PURCHASE, `REFUND_REPLACEMENT_REVIEW` = FINANCE,
+  new kind `REPLACEMENT_APPROVAL` = SALES (a REPLACEMENT decision's review uses it when set, else the combined kind)
+  (`PUT /support-config/authorities`). BR-10 `FINANCIAL_GRANT` = MANAGEMENT (`PUT /mis/authorities`). BR-08 credit notes and
+  BR-06 supplier returns were already FINANCE / PURCHASE (fixed roles, unchanged).
+- **`company_policy_config`** (`GET` any role / `PUT /company-config` SYSTEM_ADMIN; omitted = unchanged, null = clear):
+  `max_discount_percent` = 5 is ENFORCED by `trg_br04_discount_threshold` (replaces 001's 10% `check4`; unset = 10%).
+  STORED ONLY (nothing consumes them yet): customer return window 15 d, supplier return window 15–20 d, return freight payer
+  CUSTOMER, quote follow-up 5 d, RMA turnaround target (unset), customer-return authoriser SALES, supplier refund / AP FINANCE,
+  KPI sign-off MANAGEMENT.
+- **BR-11** (`PUT /sales-config/policy`): invoice trigger DISPATCH, payment before closure = false, new `advance_policy` = NONE
+  (an order with no recorded terms needs no advance; recorded terms still apply). Needs an employee for `updated_by_id`, so CHN
+  is skipped until it has a SYSTEM_ADMIN.
+- **GST:** PRODUCT_SALE rate 9 + 9 / 18 with `hsn_sac` NULL (allowed only for that row): product HSN is per item
+  (`fdn_item_master.hsn_tax`); a product line whose item has no valid HSN is refused. Service SAC 998732 unchanged.
+- **One invoice per dispatch:** all jobs on a repair invoice must come from one dispatch batch (`br08_assert_single_dispatch` in
+  preview / issue + `trg_br08_invoice_single_dispatch`). Replaces "several dispatched jobs of one customer".
+- **Receivables ageing** (BR-10 RECEIVABLES_AGING): NOT_DUE / 0-15 / 16-30 / 31-60 / 60+ days past the due date.
+- CHN: GSTIN 33CVKPP7269M2ZP, state 33. Address + bank still empty, so CHN invoicing stays blocked until they are loaded.
+- Calendar unchanged (Mon–Fri 09:30–18:30, Sat 09:30–16:00, lunch 13:30–14:15); holidays not loaded (client list pending).
+
+**FLAGGED (needs a schema / product decision, not built):**
+1. No-GST customer CASH BILL: no non-GST bill type exists (BR-08 requires customer GSTIN + state and always computes GST).
+   Needs an invoice type, its numbering series, a print format and the rule for who may issue one.
+2. Warranty "varies by product": no per-product warranty field exists. BR-08 / BR-09 still use 3 months from POD.
+3. Finance-report access authoriser "MD & ACCOUNTS": `br10_authority_config` holds ONE role; MANAGEMENT is set. A second
+   (FINANCE) approval needs a model change, and whether both or either must approve is unconfirmed.
+4. One invoice per dispatch for PRODUCT sales: a product invoice covers an order's invoiceable quantity and can span several
+   outwards; per-outward invoicing needs a source-model change.
+5. Every item's `hsn_tax` is currently empty on staging, so product invoicing is refused until HSN codes are entered.
+6. Ageing basis (days past due date vs. invoice date) was not stated; the existing due-date basis is kept.
 
 ## 4e. Working calendar — migration 012, src/modules/calendar
 

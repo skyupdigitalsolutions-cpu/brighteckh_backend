@@ -77,7 +77,8 @@ export class FeedbackDto {
 }
 
 export const CASE_STATUSES = ['REGISTERED', 'UNDER_REVIEW', 'DECIDED', 'CLOSED', 'ON_HOLD', 'CANCELLED'];
-export const AUTHORITY_KINDS = ['CLAIM_DECISION', 'GOODWILL_APPROVAL', 'REFUND_REPLACEMENT_REVIEW'];
+// REPLACEMENT_APPROVAL (026): approver of a REPLACEMENT decision's review; unset = REFUND_REPLACEMENT_REVIEW applies.
+export const AUTHORITY_KINDS = ['CLAIM_DECISION', 'GOODWILL_APPROVAL', 'REFUND_REPLACEMENT_REVIEW', 'REPLACEMENT_APPROVAL'];
 
 export class ListCasesQueryDto {
   @ApiPropertyOptional({ enum: CASE_STATUSES })

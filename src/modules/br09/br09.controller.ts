@@ -112,9 +112,9 @@ export class Br09Controller {
   }
 
   @Post('support-cases/:id/refund-replacement-review')
-  @ApiOperation({ summary: 'Separate review of a REPLACEMENT / REFUND_REVIEW decision by the CONFIGURED role. Approved refund -> Finance credit-note request.' })
+  @ApiOperation({ summary: 'Separate review of a REPLACEMENT / REFUND_REVIEW decision by the CONFIGURED role (REPLACEMENT uses REPLACEMENT_APPROVAL when set, else REFUND_REPLACEMENT_REVIEW). Approved refund -> Finance credit-note request.' })
   @ApiCreatedResponse({ type: CaseDetail })
-  @ConfiguredApprover('REFUND_REPLACEMENT_REVIEW')
+  @ConfiguredApprover('REFUND_REPLACEMENT_REVIEW / REPLACEMENT_APPROVAL')
   refundReplacementReview(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RefundReplacementReviewDto, @CurrentActor() a: Actor) {
     return this.svc.reviewRefundReplacement(id, dto, a);
   }
@@ -202,7 +202,7 @@ export class Br09Controller {
 
   @Put('support-config/authorities')
   @Roles(Role.SYSTEM_ADMIN)
-  @ApiOperation({ summary: 'Assign (or clear) the approver role for CLAIM_DECISION / GOODWILL_APPROVAL -- CLIENT-UNCONFIRMED' })
+  @ApiOperation({ summary: 'Assign (or clear) the approver role for CLAIM_DECISION / GOODWILL_APPROVAL / REFUND_REPLACEMENT_REVIEW / REPLACEMENT_APPROVAL' })
   @ApiOkResponse({ type: Br09Config })
   setAuthority(@Body() dto: AuthorityConfigDto, @CurrentActor() a: Actor) { return this.svc.setAuthority(dto, a); }
 

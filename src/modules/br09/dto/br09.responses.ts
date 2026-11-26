@@ -49,7 +49,7 @@ export class SupportAnalytics {
 }
 
 export class SupportAuthorityStatus {
-  @ApiProperty({ enum: ['CLAIM_DECISION', 'GOODWILL_APPROVAL'] }) decision_kind!: string;
+  @ApiProperty({ enum: ['CLAIM_DECISION', 'GOODWILL_APPROVAL', 'REFUND_REPLACEMENT_REVIEW', 'REPLACEMENT_APPROVAL'] }) decision_kind!: string;
   @ApiProperty({ type: 'string', nullable: true }) approver_role_code!: string | null;
   @ApiProperty({ example: 'CLIENT-UNCONFIRMED (decisions blocked)' }) status!: string;
   @ApiProperty({ type: 'string', nullable: true }) note!: string | null;

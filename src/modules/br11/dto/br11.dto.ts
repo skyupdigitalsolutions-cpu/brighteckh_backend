@@ -21,6 +21,10 @@ export class SalesPolicyDto {
   invoice_trigger?: string | null;
   @ApiPropertyOptional({ nullable: true, description: '11C-09 full payment before closure. null = unconfigured = closure BLOCKED.' })
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsBoolean() requires_full_payment_for_closure?: boolean | null;
+  @ApiPropertyOptional({ enum: ['NONE', 'PER_ORDER'], nullable: true,
+    description: '11B-02 company advance policy (026). NONE = an order with no recorded payment terms needs no advance; terms recorded on an order still apply. null / PER_ORDER = terms must be recorded before reservation / sourcing.' })
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsIn(['NONE', 'PER_ORDER'])
+  advance_policy?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 

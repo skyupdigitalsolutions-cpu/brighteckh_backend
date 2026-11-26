@@ -58,7 +58,7 @@ const TABLES = [
   'br10_role_bindings', 'br10_report_grants', 'br10_grant_approvals', 'br10_sales_customer_assignments',
   'br10_column_masks', 'br10_report_access_log',
   // BR-11 (migration 018) + its BR-06 / BR-08 extensions
-  'br11_company_policies', 'br11_sales_enquiries', 'br11_enquiry_lines', 'br11_sale_quotations', 'br11_quote_revisions',
+  'company_policy_config', 'br11_company_policies', 'br11_sales_enquiries', 'br11_enquiry_lines', 'br11_sale_quotations', 'br11_quote_revisions',
   'br11_quote_lines', 'br11_quote_dispatch_events', 'br11_customer_quote_responses', 'br11_sales_orders',
   'br11_sales_order_lines', 'br11_order_authorisation_events', 'br11_order_payment_conditions',
   'br11_inventory_reservation_requests', 'br11_outward_batches', 'br11_outward_lines', 'br11_packing_evidence',

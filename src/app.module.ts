@@ -12,6 +12,7 @@ import { Br06Module } from './modules/br06/br06.module';
 import { Br07Module } from './modules/br07/br07.module';
 import { Br08Module } from './modules/br08/br08.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { CompanyConfigModule } from './modules/company-config/company-config.module';
 import { Br09Module } from './modules/br09/br09.module';
 import { Br10Module } from './modules/br10/br10.module';
 import { Br11Module } from './modules/br11/br11.module';
@@ -35,6 +36,7 @@ import { PurchaseDeskModule } from './modules/purchase-desk/purchase-desk.module
     Br07Module,
     Br08Module,
     CalendarModule,
+    CompanyConfigModule,
     Br09Module,
     Br10Module,
     Br11Module,
