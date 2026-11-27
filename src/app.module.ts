@@ -20,6 +20,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { PurchaseDeskModule } from './modules/purchase-desk/purchase-desk.module';
+import { AdminSettingsModule } from './modules/admin-settings/admin-settings.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { PurchaseDeskModule } from './modules/purchase-desk/purchase-desk.module
     DashboardModule,
     UploadsModule,
     PurchaseDeskModule,
+    AdminSettingsModule,
   ],
   controllers: [HealthController],
 })

@@ -11,17 +11,18 @@ export class EntityProfileResponse {
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() entity_code!: string;
   @ApiProperty() name!: string;
-  @ApiProperty({ nullable: true }) legal_name!: string | null;
-  @ApiProperty({ nullable: true, example: 'BIAPL' }) doc_prefix!: string | null;
-  @ApiProperty({ nullable: true }) gstin!: string | null;
-  @ApiProperty({ nullable: true, example: '29' }) state_code!: string | null;
-  @ApiProperty({ nullable: true, example: 'Karnataka' }) state_name!: string | null;
-  @ApiProperty({ nullable: true }) registered_address!: string | null;
-  @ApiProperty({ nullable: true }) bank_account_name!: string | null;
-  @ApiProperty({ nullable: true }) bank_name!: string | null;
-  @ApiProperty({ nullable: true }) bank_account_no!: string | null;
-  @ApiProperty({ nullable: true }) bank_ifsc!: string | null;
-  @ApiProperty({ nullable: true }) bank_branch!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) legal_name!: string | null;
+  @ApiProperty({ type: 'string', nullable: true, example: 'BIAPL' }) doc_prefix!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) gstin!: string | null;
+  @ApiProperty({ type: 'string', nullable: true, example: '29' }) state_code!: string | null;
+  @ApiProperty({ type: 'string', nullable: true, example: 'Karnataka' }) state_name!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) registered_address!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) bank_account_name!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) bank_name!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) bank_account_no!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) bank_ifsc!: string | null;
+  @ApiProperty({ type: 'string', nullable: true }) bank_branch!: string | null;
+  @ApiProperty({ type: 'string', nullable: true, example: 'UDYAM-KR-03-0012345', description: 'MSME Udyam registration (027). Stored only.' }) udyam_number!: string | null;
 }
 
 export class DispatchBatchCreated extends Br08DispatchBatchesRow {

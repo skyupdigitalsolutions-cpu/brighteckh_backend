@@ -62,7 +62,7 @@ export class Br08Service {
     const r = await this.pg.query(
       `SELECT le.id, le.entity_code, le.name, le.legal_name, le.doc_prefix, le.gstin, le.state_code,
               gs.state_name, le.registered_address, le.bank_account_name, le.bank_name, le.bank_account_no,
-              le.bank_ifsc, le.bank_branch
+              le.bank_ifsc, le.bank_branch, le.udyam_number
          FROM legal_entities le LEFT JOIN gst_states gs ON gs.state_code=le.state_code WHERE le.id=$1`,
       [actor.companyId],
     );

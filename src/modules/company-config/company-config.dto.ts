@@ -39,6 +39,9 @@ export class CompanyPolicyDto {
   @ApiPropertyOptional({ nullable: true, enum: ROLES, description: 'Stored only: management KPI sign-off (no KPI validation workflow)' })
   @IsOptional() @ValidateIf(notNull) @IsIn(ROLES) kpi_signoff_authority_role?: string | null;
 
+  @ApiPropertyOptional({ nullable: true, enum: ROLES, description: 'Stored only: supplier return authoriser (027; no supplier-return workflow)' })
+  @IsOptional() @ValidateIf(notNull) @IsIn(ROLES) supplier_return_authority_role?: string | null;
+
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 
@@ -46,7 +49,7 @@ export const POLICY_FIELDS = [
   'max_discount_percent', 'customer_return_window_days', 'supplier_return_window_min_days',
   'supplier_return_window_max_days', 'return_freight_payer', 'quote_followup_days',
   'rma_turnaround_target_working_days', 'customer_return_authority_role', 'supplier_refund_authority_role',
-  'kpi_signoff_authority_role',
+  'kpi_signoff_authority_role', 'supplier_return_authority_role',
 ] as const;
 
 export class CompanyConfigResponse {

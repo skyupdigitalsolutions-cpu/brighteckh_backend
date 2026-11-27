@@ -58,6 +58,7 @@ async function bootstrap() {
       .addTag('Purchase overview', 'P0 overview cards for Purchase / Management (raw counts, company-scoped)')
       .addTag('Stores desk', 'Stores / Quality receiving reads: POs to receive, PO lines (no prices), GRN register + detail with photos and ledger movements')
       .addTag('Sales & Supply desk', 'BR-11 product-sales lists: enquiries, quotation worklist (derived stage), Sales Orders, outwards. Read-only, no supplier cost')
+      .addTag('Admin settings', 'SYSTEM_ADMIN Settings panel: every company profile, authorisers, policies, calendar, numbering; global GST rates and test-start SLA')
       .addTag('Health')
       .build();
     SwaggerModule.setup('api/docs', app, tidyHeaderParams(SwaggerModule.createDocument(app, cfg)));

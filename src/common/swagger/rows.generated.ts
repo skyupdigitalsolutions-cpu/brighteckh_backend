@@ -2678,6 +2678,8 @@ export class CompanyPolicyConfigRow {
   updated_by_id!: string | null;
   @ApiProperty({ type: "string", format: "date-time" })
   updated_at!: string;
+  @ApiProperty({ enum: ["PURCHASE","ENGINEER","SALES","STORES_QUALITY","EXTERNAL_COORD","FINANCE","MANAGEMENT","SYSTEM_ADMIN"], nullable: true })
+  supplier_return_authority_role!: string | null;
 }
 
 /** Row of `br11_company_policies` as returned by SELECT * */

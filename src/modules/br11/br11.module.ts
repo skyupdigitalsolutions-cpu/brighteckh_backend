@@ -3,5 +3,5 @@ import { Br11Controller } from './br11.controller';
 import { Br11Service } from './br11.service';
 import { InventoryModule } from '../inventory/inventory.module';
 
-@Module({ imports: [InventoryModule], controllers: [Br11Controller], providers: [Br11Service] })
+@Module({ imports: [InventoryModule], controllers: [Br11Controller], providers: [Br11Service], exports: [Br11Service] })
 export class Br11Module {}
